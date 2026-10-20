@@ -147,7 +147,9 @@ decisions:
         after the load.
     recommendation: check
     rationale: The target should be at least as constrained as the source, and the source
-      data already satisfies both rules. Data tests still run on top.
+      data already satisfies both rules. Data tests still run on top. Snowflake rejects
+      COPY INTO on tables with CHECK constraints, so the loader lands those tables in an
+      unconstrained temporary table and INSERTs from it, which enforces the CHECKs.
     decision: check
 
   D09:
