@@ -8,6 +8,7 @@ A small, realistic data-migration test program: migrate the Pagila sample databa
 docker compose up -d                                        # source Postgres on localhost:5434
 uv run --env-file .env python -m migrate.load               # migrate all tables to PAGILA_MIG.RAW
 uv run --env-file .env pytest                               # spec, loader, and reconciliation suite
+uv run --env-file .env python -m faults.matrix              # inject each fault, score detection (~8 min)
 ```
 
 Setup (Snowflake account, key pair, `.env`) is covered in `sql/snowflake_setup.sql` and `.env.example`.
@@ -45,4 +46,4 @@ Hand-written for `payment` in `sql/reconciliation/` (both dialects), generalized
 - NULL is encoded as `0` and a value as `1` + value. A `\N` token doesn't work, because Snowflake reads `'\N'` as `N`.
 - Timestamps are UTC with microseconds. Numerics use fixed scale. UUIDs are lowercase.
 - Strings are compared untrimmed. Pagila has no `CHAR(n)` columns, so trimming could only hide defects.
-- Vectors are rounded to 6 decimals per element, so changes below about 5e-7 aren't detected.
+- Vectors are rounded to 9 decimals per element: no false mismatches on the 1,000 real embeddings, and a 1e-7 drift is caught.

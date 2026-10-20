@@ -19,6 +19,9 @@ What AI (Claude Code) generated in this project, what was wrong with it, and wha
 | 9 | 3 | Verification commands (ad hoc) | Passed `-c` to `sh` instead of `psql` (psql waited on stdin until timeout); used reserved word `rows` as a Snowflake alias | Hang, then a syntax error | Corrected; no effect on project files |
 | 10 | 4 | MIG-006 requirement and test | Defined as "the latest run covers every table", which fails after any legitimate partial reload | The test failed on the human's partial `film payment` run | Redefined: each table's most recent load succeeded; requirement and test changed together |
 | 11 | 4 | `src/reconcile/aggregates.py` (draft) | Applied `COLLATE "C"` to the `mpaa_rating` enum (an error), and the enum would have ordered by declaration, not alphabetically | First run | Non-text sources that land as text are compared as `::text COLLATE "C"` |
+| 12 | 5 | `src/faults/inject.py` fingerprint (draft) | Hashed `GET_DDL`, which a clone reorders, so a correctly restored `FILM` looked unrestored | Apply/restore round trip | Structure is now fingerprinted from `DESC TABLE` and the PK columns |
+| 13 | 4→5 | `src/reconcile/rowhash.py` diff | Loaded rows into `{key: hash}` dicts, so duplicate target rows collapsed and MIG-005 ("no extra rows") passed with 2 duplicated rentals | Fault matrix (`duplicate_rows`); predicted before the run | Diff takes row lists and reports duplicated keys per side; unit tests added |
+| 14 | 4→5 | Vector normalization | 6-decimal rounding was over-conservative; a 1e-7 drift went undetected | Fault matrix (`tiny_vector_drift`) | Probe showed 9 decimals gives 0 false mismatches on 1,000 real embeddings and catches the drift; switched to 9 |
 
 ## Phase 1: Source profiling
 
@@ -86,3 +89,21 @@ What AI (Claude Code) generated in this project, what was wrong with it, and wha
   - A broken FILM copy failed exactly the 4 contract checks it should.
 - **Differs from the brief:** Soda Core open source has no source↔target reconciliation; it needs the licensed `soda-reconciliation` package. The human chose contracts only, with reconciliation staying in pytest.
 - **Found in the source:** `store.manager_staff_id` has no declared FK, and 499 of 500 managers belong to another store (SRC-004).
+
+## Phase 5: Fault injection
+
+- **Generated:**
+  - `src/faults/` with 12 faults: the brief's 7, plus orphan FK, trailing whitespace, microsecond truncation, a dropped CHECK, and sub-tolerance vector drift
+  - an apply/restore CLI with zero-copy clone backups
+  - a matrix runner that maps failures to layers through requirement IDs in JUnit XML
+- **Pre-registered predictions** were written down before the first run. All 12 rows matched, including both misses.
+- **First run: 11/12.**
+  - Missed `tiny_vector_drift`: vector tolerance too loose (defect 14).
+  - The row layer was blind to `duplicate_rows`: dict collapse (defect 13).
+- **Human decision:** fix the row-layer duplicates and tighten vectors to 9 decimals. Declined: a Soda email-completeness rule (a business rule, not a migration fact) and an expected-catch gate on the matrix.
+- **Re-run: 12/12.** Every restore was verified by fingerprint.
+- **Coverage notes:**
+  - `swap_fk_values` and `trailing_whitespace` are caught only by the row layer.
+  - The Soda contracts catch only duplicates.
+  - The process layer can't see post-load corruption.
+  - Faults run one at a time, so masking combinations are untested.
