@@ -1,0 +1,15 @@
+pagila:
+  target: dev
+  outputs:
+    dev:
+      type: snowflake
+      account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
+      user: PAGILA_SVC
+      private_key_path: "{{ env_var('SNOWFLAKE_PRIVATE_KEY_PATH') }}"
+      role: PAGILA_ROLE
+      warehouse: PAGILA_WH
+      database: PAGILA_MIG
+      # Default only; every model sets its schema in dbt_project.yml.
+      schema: STAGING
+      threads: 4
+      query_tag: pagila-dbt

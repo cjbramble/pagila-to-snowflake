@@ -1,0 +1,12 @@
+sources:
+  - name: raw
+    description: Migrated Pagila tables, loaded by src/migrate/load.py and reconciled in Phase 4.
+    database: PAGILA_MIG
+    schema: RAW
+    tables:
+      - name: payment
+      - name: rental
+      - name: inventory
+      - name: film
+      - name: customer
+      - name: store
