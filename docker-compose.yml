@@ -7,12 +7,15 @@ services:
       POSTGRES_USER: ${PGUSER:?set PGUSER in .env}
       POSTGRES_PASSWORD: ${PGPASSWORD:?set PGPASSWORD in .env}
       POSTGRES_DB: ${PGDATABASE:?set PGDATABASE in .env}
+      TRIAGE_PGUSER: ${TRIAGE_PGUSER:?set TRIAGE_PGUSER in .env}
       TRIAGE_PGPASSWORD: ${TRIAGE_PGPASSWORD:?set TRIAGE_PGPASSWORD in .env}
     ports:
       # Localhost only, on a non-default port so it doesn't clash with other local Postgres.
       - "127.0.0.1:${PGPORT:-5434}:5432"
     volumes:
-      # Init scripts run once, in name order, only when the volume is empty.
+      # Init scripts run once, in name order, only when the volume is empty. Single-file
+      # mounts pin the file as it was at container start: after editing one, recreate the
+      # container (docker compose up -d --force-recreate) before running it by hand.
       - ./docker/pagila/pagila-schema.sql:/docker-entrypoint-initdb.d/01-pagila-schema.sql:ro
       - ./docker/pagila/pagila-data.sql:/docker-entrypoint-initdb.d/02-pagila-data.sql:ro
       - ./docker/init/03-triage-role.sh:/docker-entrypoint-initdb.d/03-triage-role.sh:ro
