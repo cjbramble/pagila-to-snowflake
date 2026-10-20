@@ -27,6 +27,11 @@ def pytest_collection_modifyitems(config, items):
     )
     if unknown:
         raise pytest.UsageError("Unknown requirement IDs:\n  " + "\n  ".join(unknown))
+    # Carried into --junitxml output, so reports can map results back to requirements.
+    for item in items:
+        for marker in item.iter_markers("req"):
+            for req_id in marker.args:
+                item.user_properties.append(("requirement", req_id))
 
 
 @pytest.hookimpl(wrapper=True)
