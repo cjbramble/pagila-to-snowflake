@@ -32,6 +32,9 @@ What AI (Claude Code) generated in this project, what was wrong with it, and wha
 | 22 | 7 | AI-generated SQL, all three | Aggregate fingerprints instead of row-level comparison; offsetting errors pass (the agent flagged this, citing the 200-row tool cap) | Claude review; confirmed by human | Logged; finding D |
 | 23 | 7 | AI-generated SQL, MIG-004 | The SQL it delivered was abbreviated (`UNION ALL ...`), so it can't be reviewed or reused as delivered | Claude review; confirmed by human | Logged; finding E |
 | 24 | 7 | `src/reconcile/summarize.py` fact check (first version) | Checked requirement IDs and tables only; a Cortex summary that misattributed metrics to `payment_date` passed | Claude's close reading of a passing summary | Added an invented-number check; docstring states the check can't judge wording |
+| 25 | 3 | `src/migrate/load.py` `migrate_table` | Caught only database errors; an Arrow or file error while building the Parquet extract crashed the run without a FAILED `LOAD_LOG` entry, leaving the previous SUCCESS as the latest | Codex review on PR #1 | Arrow and OS errors go through the same logging path; 2 unit tests, which fail with the old handler |
+| 26 | 7 | `src/reconcile/record.py` | Recorded only `tests/reconciliation` and `tests/etl`, so MIG-001 (in `tests/test_mapping_spec.py`) never reached `QA.RECON_RESULTS`; a failing run could be stored and summarized as clean | Codex review on PR #1 | Records the whole suite; verified 17/17 requirements covered |
+| 27 | 7 | `docker/init/03-triage-role.sh` | Hard-coded the `dq_triage` role while the query tool logs in as `$TRIAGE_PGUSER`, so the documented setting couldn't actually be changed | Codex review on PR #1 | Uses `TRIAGE_PGUSER`, quoted as an identifier; tested with a name that needs quoting |
 
 ## Phase 1: Source profiling
 
@@ -194,3 +197,13 @@ What AI (Claude Code) generated in this project, what was wrong with it, and wha
   - The summary named the right 4 requirements and table, and the "3 rows" count, and passed the check.
   - Close reading still found a misattribution: min and sum differences claimed for `payment_date`, where only the distinct count differed (defect 24).
 - **Cost:** 0.000355 credits per call (about $0.0007), from `ACCOUNT_USAGE.CORTEX_AI_FUNCTIONS_USAGE_HISTORY`.
+
+## Phase 7: External AI review (Codex on PR #1)
+
+- **Findings:** Codex (a different vendor's model) reviewed the PR and left 4 findings, all P2.
+  - Three were real defects (25-27) in code that had passed every test, negative control, and self-review. Two of them sat in code that existed only to prevent silent gaps (load logging and recorded runs).
+  - That's the case for reviews from an independent model: the same model writing and checking shares blind spots.
+- **Disagreed (human decision):** Codex said the column-level `PAYMENT_ID` and `UUID` uniqueness checks in `soda/contracts/payment.yml` reject a source state the schema allows.
+  - The checks stay. Postgres forced the source keys to include the partition column, and both columns are generated unique, so a repeat is a quality defect.
+  - The contract now explains why.
+- **Found while fixing 27:** a Docker single-file bind mount kept serving a stale, truncated copy of the edited init script until the container was recreated. A comment in `docker-compose.yml` now warns about this.
