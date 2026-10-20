@@ -2,8 +2,10 @@
 
 import copy
 
+import pyarrow as pa
 import pytest
 
+from migrate import load
 from migrate.ddl import create_table_sql
 from migrate.load import arrow_type, copy_sql, loaded_columns
 from migrate.mapping import load_spec
@@ -51,3 +53,20 @@ def test_copy_casts_vector_through_array():
     assert '$1:"embedding"::ARRAY::VECTOR(FLOAT, 20)' in sql
     assert '$1:"last_update"::TIMESTAMP_TZ(6)' in sql
     assert "ON_ERROR = ABORT_STATEMENT" in sql
+
+
+@pytest.mark.parametrize(
+    "error",
+    [pa.ArrowInvalid("Could not convert 'x' with type str"), OSError("No space left on device")],
+    ids=["arrow", "os"],
+)
+def test_extract_failure_is_reported_as_failed(monkeypatch, tmp_path, error):
+    def failing_extract(*args, **kwargs):
+        raise error
+
+    monkeypatch.setattr(load, "extract_to_parquet", failing_extract)
+    # Connections are never touched: the extract fails before anything reaches Snowflake.
+    result = load.migrate_table(None, None, SPEC, "payment", tmp_path, "run-1")
+    assert result["status"] == "FAILED"
+    assert result["loaded"] is None
+    assert type(error).__name__ in result["error"]

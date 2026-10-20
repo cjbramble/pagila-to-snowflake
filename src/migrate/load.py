@@ -215,8 +215,10 @@ def migrate_table(
         )
         result["loaded"] = load_table(sf, spec, table, parquet, run_id)
         result["status"] = "SUCCESS" if result["loaded"] == result["extracted"] else "MISMATCH"
-    except (psycopg.Error, SnowflakeError) as e:
-        result["status"], result["error"] = "FAILED", str(e)
+    # Arrow and file errors come from building the Parquet extract. Logging them as FAILED
+    # matters: an unlogged attempt would leave the previous SUCCESS as the latest entry.
+    except (psycopg.Error, SnowflakeError, pa.ArrowException, OSError) as e:
+        result["status"], result["error"] = "FAILED", f"{type(e).__name__}: {e}"
     result["started_at"] = started_at
     result["finished_at"] = dt.datetime.now(dt.UTC)
     result["duration_s"] = time.perf_counter() - t0
