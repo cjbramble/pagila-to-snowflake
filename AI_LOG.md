@@ -17,6 +17,8 @@ What AI (Claude Code) generated in this project, what was wrong with it, and wha
 | 7 | 2→3 | D08 recommendation (`CHECK`) | Recommended CHECK constraints after probing only `INSERT`. Snowflake rejects `COPY INTO` on tables with CHECK constraints, so `film` failed to load | First real load | Human chose to keep D08; loader lands CHECK tables in a temporary table, then `INSERT`s |
 | 8 | 3 | `src/migrate/load.py` (draft) | argparse `choices=[[], ...]` hack, a magic number for psycopg's in-error transaction state, and an internal connector type path | Self-review before first run | Explicit table validation, `TransactionStatus.INERROR`, public import paths |
 | 9 | 3 | Verification commands (ad hoc) | Passed `-c` to `sh` instead of `psql` (psql waited on stdin until timeout); used reserved word `rows` as a Snowflake alias | Hang, then a syntax error | Corrected; no effect on project files |
+| 10 | 4 | MIG-006 requirement and test | Defined as "the latest run covers every table", which fails after any legitimate partial reload | The test failed on the human's partial `film payment` run | Redefined: each table's most recent load succeeded; requirement and test changed together |
+| 11 | 4 | `src/reconcile/aggregates.py` (draft) | Applied `COLLATE "C"` to the `mpaa_rating` enum (an error), and the enum would have ordered by declaration, not alphabetically | First run | Non-text sources that land as text are compared as `::text COLLATE "C"` |
 
 ## Phase 1: Source profiling
 
@@ -60,3 +62,27 @@ What AI (Claude Code) generated in this project, what was wrong with it, and wha
   - The CHECK constraint rejected a bad rating after loading.
   - Idempotency: per-table `COUNT(*)` and `HASH_AGG(*)` were identical before and after a re-run.
 - **Human decision:** keep D08 and load `film` through a landing table (see defect 7).
+
+## Phase 4: Reconciliation suite
+
+- **Generated:**
+  - `requirements/requirements.yml` (MIG-001 to MIG-009, plus known source issues SRC-001 to SRC-004)
+  - the `req` marker plumbing with a per-requirement summary
+  - schema, volume, aggregate, row-hash, and integrity tests
+  - the hand-written `payment` row-hash pair and the generator
+  - Soda contracts for 4 tables
+- **Probes before design:**
+  - Formatting functions produced identical text on both engines.
+  - Snowflake turns the literal `'\N'` into `N`, so the hash uses a presence flag instead of a null token.
+  - Snowflake rewrites virtual column expressions (`60.0` became `SCALED_ROUND_INT_DIVIDE(LENGTH, 60)`), so schema parity checks the kind and the data layers check the values.
+- **Validation:**
+  - A planted FAILED load-log row failed MIG-006.
+  - Dropping one film row produced 15 aggregate differences.
+  - Without `COLLATE "C"`, 3 text columns would have given false failures.
+  - The row-hash pair caught a missing and a changed payment by key.
+  - The generator reproduces the hand-written hashes on both sides.
+  - 11 row-hash mutations behaved as predicted, including 3 deliberate non-detections: a vector change under 1e-7, the same instant at a different offset, and UUID case.
+  - Unknown requirement IDs fail collection.
+  - A broken FILM copy failed exactly the 4 contract checks it should.
+- **Differs from the brief:** Soda Core open source has no source↔target reconciliation; it needs the licensed `soda-reconciliation` package. The human chose contracts only, with reconciliation staying in pytest.
+- **Found in the source:** `store.manager_staff_id` has no declared FK, and 499 of 500 managers belong to another store (SRC-004).
