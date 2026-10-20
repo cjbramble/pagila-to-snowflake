@@ -7,7 +7,8 @@ dependencies = [
     "psycopg[binary]>=3.3",
     "pyarrow>=26.0",
     "pyyaml>=6.0",
-    "snowflake-connector-python>=5.0",
+    # dbt-snowflake 1.12 requires < 5.0
+    "snowflake-connector-python>=4.8,<5",
 ]
 
 [dependency-groups]
@@ -38,8 +39,8 @@ markers = [
     "target_db: needs Snowflake (connection from ~/.snowflake/connections.toml)",
 ]
 filterwarnings = [
-    # Both raised inside Soda Core: its own Snowflake connection doesn't set the new
-    # connector option (migrate.snowflake_conn does), and an internal SQL AST class.
-    "ignore:enable_server_session_keep_alive_auto_detection:FutureWarning",
+    # Raised inside Soda Core by an internal SQL AST class.
     "ignore::DeprecationWarning:soda_core.common.sql_ast",
+    # Raised by the urllib3 copy vendored in snowflake-connector-python 4.x.
+    "ignore:X509.get_subject is deprecated:DeprecationWarning",
 ]

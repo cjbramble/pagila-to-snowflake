@@ -13,8 +13,6 @@ def connect(connection_name: str | None = None) -> SnowflakeConnection:
     name = connection_name or os.environ.get("SNOWFLAKE_CONNECTION", DEFAULT_CONNECTION)
     return snowflake.connector.connect(
         connection_name=name,
-        # Short-lived scripts: always log out on close instead of probing for async queries.
-        enable_server_session_keep_alive_auto_detection=False,
         session_parameters={
             # The account default is America/Los_Angeles; casting loaded timestamps to
             # TIMESTAMP_TZ would stamp them with that offset instead of UTC.
