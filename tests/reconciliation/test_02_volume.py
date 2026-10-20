@@ -36,3 +36,24 @@ def test_latest_load_of_every_table_succeeded(sf, spec):
     never_loaded = sorted(set(spec["tables"]) - set(latest))
     bad = {t: v for t, v in latest.items() if v[1] != "SUCCESS" or v[2] != v[3]}
     assert not never_loaded and not bad, f"never loaded: {never_loaded}; latest not OK: {bad}"
+
+
+@pytest.mark.req("MIG-006")
+@pytest.mark.parametrize("table", TABLES)
+def test_table_still_holds_logged_rows(sf, spec, table):
+    # The log records what the load wrote; this catches rows added or removed afterwards.
+    logged = (
+        sf.cursor()
+        .execute(
+            f"""SELECT rows_loaded FROM {LOAD_LOG} WHERE table_name = %s
+            ORDER BY started_at DESC LIMIT 1""",
+            (table,),
+        )
+        .fetchone()
+    )
+    assert logged, f"{table}: no load log entry"
+    current = sf.cursor().execute(f"SELECT count(*) FROM {target_table(spec, table)}").fetchone()[0]
+    assert current == logged[0], (
+        f"{table}: load logged {logged[0]} rows, table now has {current} "
+        f"({current - logged[0]:+d}); changed after the load"
+    )

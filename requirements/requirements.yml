@@ -43,10 +43,11 @@ migration:
   MIG-006:
     title: Load run is complete and logged
     statement: For every spec table, its most recent QA.LOAD_LOG entry has status SUCCESS
-      and rows_loaded equal to rows_extracted. Partial reloads are allowed, so the
-      latest entries may come from different runs.
-    acceptance: Every spec table has a latest entry, and every latest entry is SUCCESS with
-      equal counts.
+      and rows_loaded equal to rows_extracted, and the table still holds exactly
+      rows_loaded rows, so rows added or removed after the load are caught. Partial reloads
+      are allowed, so the latest entries may come from different runs.
+    acceptance: Every spec table has a latest entry, every latest entry is SUCCESS with
+      equal counts, and each table's current COUNT(*) equals its latest rows_loaded.
     layer: process
 
   MIG-007:
