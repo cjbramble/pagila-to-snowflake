@@ -1,0 +1,82 @@
+models:
+  - name: mart_monthly_store_revenue
+    description: Revenue per store per UTC calendar month (ETL-001, ETL-002).
+    columns:
+      - name: store_id
+        data_tests:
+          - not_null:
+              config:
+                meta: {requirement: ETL-001}
+          - relationships:
+              arguments:
+                to: ref('stg_store')
+                field: store_id
+              config:
+                meta: {requirement: ETL-001}
+      - name: revenue_month
+        data_tests:
+          - not_null:
+              config:
+                meta: {requirement: ETL-002}
+      - name: payment_count
+        data_tests:
+          - not_null:
+              config:
+                meta: {requirement: ETL-002}
+
+  - name: mart_customer_lifetime_value
+    description: One row per customer with lifetime revenue and activity (ETL-003).
+    columns:
+      - name: customer_id
+        data_tests:
+          - unique:
+              config:
+                meta: {requirement: ETL-003}
+          - not_null:
+              config:
+                meta: {requirement: ETL-003}
+          - relationships:
+              arguments:
+                to: ref('stg_customer')
+                field: customer_id
+              config:
+                meta: {requirement: ETL-003}
+      - name: lifetime_revenue
+        data_tests:
+          - not_null:
+              config:
+                meta: {requirement: ETL-003}
+
+  - name: mart_rental_returns
+    description: Due date, return status, days late, and late fee per rental (ETL-004 to ETL-007).
+    columns:
+      - name: rental_id
+        data_tests:
+          - unique:
+              config:
+                meta: {requirement: ETL-005}
+          - not_null:
+              config:
+                meta: {requirement: ETL-005}
+      - name: due_at
+        data_tests:
+          - not_null:
+              config:
+                meta: {requirement: ETL-004}
+      - name: return_status
+        data_tests:
+          - not_null:
+              config:
+                meta: {requirement: ETL-005}
+          - accepted_values:
+              arguments:
+                values: ['on_time', 'late', 'not_returned']
+              config:
+                meta: {requirement: ETL-005}
+      - name: fee_basis
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['none', 'daily', 'replacement', 'not_returned']
+              config:
+                meta: {requirement: ETL-007}
