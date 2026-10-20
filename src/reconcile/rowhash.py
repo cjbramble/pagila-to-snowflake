@@ -12,14 +12,15 @@ from reconcile.aggregates import compared_columns
 
 PG_TS = """to_char({} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')"""
 SF_TS = """TO_VARCHAR(CONVERT_TIMEZONE('UTC', {}), 'YYYY-MM-DD"T"HH24:MI:SS.FF6"Z"')"""
-# Vector elements are float32; both sides round the same double value to 6 decimals.
+# Vector elements are float32 (about 7 significant digits); both sides round the same
+# double value to 9 decimals, which separates any two distinct float32 values in [0, 1].
 PG_VECTOR = (
-    "(SELECT string_agg(to_char(round(e::float8::numeric, 6), 'FM999990.000000'), ','"
+    "(SELECT string_agg(to_char(round(e::float8::numeric, 9), 'FM999990.000000000'), ','"
     " ORDER BY i) FROM unnest({}::real[]) WITH ORDINALITY AS u(e, i))"
 )
 SF_VECTOR = (
     "ARRAY_TO_STRING(TRANSFORM({}::ARRAY,"
-    " x -> TO_VARCHAR(ROUND(x::FLOAT, 6), 'FM999990.000000')), ',')"
+    " x -> TO_VARCHAR(ROUND(x::FLOAT, 9), 'FM999990.000000000')), ',')"
 )
 
 
@@ -99,10 +100,18 @@ class RowDiff:
     missing: list[str]  # in source, not in target
     extra: list[str]  # in target, not in source
     changed: list[str]  # in both, different content
+    duplicated_source: list[str]  # key appears more than once in the source
+    duplicated_target: list[str]  # key appears more than once in the target
 
     @property
     def ok(self) -> bool:
-        return not (self.missing or self.extra or self.changed)
+        return not (
+            self.missing
+            or self.extra
+            or self.changed
+            or self.duplicated_source
+            or self.duplicated_target
+        )
 
     def describe(self, limit: int = 20) -> str:
         parts = []
@@ -110,6 +119,8 @@ class RowDiff:
             ("missing", self.missing),
             ("extra", self.extra),
             ("changed", self.changed),
+            ("duplicated in source", self.duplicated_source),
+            ("duplicated in target", self.duplicated_target),
         ):
             if keys:
                 shown = ", ".join(k.replace("\x1f", "|") for k in keys[:limit])
@@ -118,10 +129,26 @@ class RowDiff:
         return "; ".join(parts)
 
 
-def diff(source: dict[str, str], target: dict[str, str]) -> RowDiff:
-    """Compare {row_key: row_hash} maps from both sides."""
+def _by_key(rows: list[tuple[str, str]]) -> tuple[dict[str, str], list[str]]:
+    """First hash per key, plus the keys that occur more than once."""
+    hashes: dict[str, str] = {}
+    duplicated: set[str] = set()
+    for key, row_hash in rows:
+        if key in hashes:
+            duplicated.add(key)
+        else:
+            hashes[key] = row_hash
+    return hashes, sorted(duplicated)
+
+
+def diff(source_rows: list[tuple[str, str]], target_rows: list[tuple[str, str]]) -> RowDiff:
+    """Compare (row_key, row_hash) rows from both sides, duplicates included."""
+    source, duplicated_source = _by_key(source_rows)
+    target, duplicated_target = _by_key(target_rows)
     return RowDiff(
         missing=sorted(source.keys() - target.keys()),
         extra=sorted(target.keys() - source.keys()),
         changed=sorted(k for k in source.keys() & target.keys() if source[k] != target[k]),
+        duplicated_source=duplicated_source,
+        duplicated_target=duplicated_target,
     )

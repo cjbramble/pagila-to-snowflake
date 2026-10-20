@@ -23,8 +23,8 @@ def test_row_hashes_match(pg, sf, spec, table):
     table_spec = spec["tables"][table]
     source_sql = rowhash.row_hash_sql("postgres", source_ref(spec, table), table_spec)
     target_sql = rowhash.row_hash_sql("snowflake", target_table(spec, table), table_spec)
-    source = dict(pg.execute(source_sql).fetchall())
-    target = dict(sf.cursor().execute(target_sql).fetchall())
+    source = pg.execute(source_sql).fetchall()
+    target = sf.cursor().execute(target_sql).fetchall()
     result = rowhash.diff(source, target)
     assert result.ok, f"{table}: {result.describe()}"
 
