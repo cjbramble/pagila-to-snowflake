@@ -1,0 +1,342 @@
+# Postgres → Snowflake mapping spec for the Pagila migration.
+#
+# Drives DDL generation (Phase 3) and schema parity tests (Phase 4).
+# Guarded by tests/test_mapping_spec.py: every source column must appear here,
+# and source_type must match what Postgres reports (format_type).
+#
+# Column fields:
+#   source_type   exactly as Postgres format_type() reports it
+#   target_type   exactly as Snowflake DESC TABLE reports it; also used verbatim in DDL
+#   nullable      target nullability (mirrors source)
+#   decision      ID in `decisions` that governs this column
+#   exclude       true = not migrated (target_type omitted)
+#   virtual       Snowflake virtual column expression; computed, not loaded
+#   check         Snowflake CHECK constraint expression (enforced)
+#   sensitive     flag for credential/PII review
+
+spec_version: 1
+
+source:
+  system: postgresql
+  version: "18.6"
+  database: pagila
+  schema: public
+
+target:
+  system: snowflake
+  database: PAGILA_MIG
+  schema: RAW
+
+conventions:
+  - Target table and column names are the source names upper-cased, unquoted. All Pagila
+    names were verified as valid unquoted Snowflake identifiers, including UUID, NAME, LENGTH.
+  - Nullability mirrors the source. Snowflake enforces NOT NULL and CHECK only.
+  - Primary keys are declared for documentation and tooling; Snowflake does not enforce them.
+    Foreign keys are not declared; orphan checks in the reconciliation suite cover them.
+  - Source column defaults (now(), uuidv7(), nextval(), CURRENT_DATE) are not carried over.
+    RAW holds migrated values; generating new rows is the source application's job.
+  - integer and smallint map to NUMBER(38,0). Snowflake stores all integers as NUMBER;
+    narrower precision saves nothing and only adds overflow risk.
+  - The 55 monthly payment partitions land in one PAYMENT table. At 51k rows no
+    clustering key is warranted.
+  - Timestamps keep microsecond precision (6). Snowflake defaults to 9; Postgres stores 6.
+
+decisions:
+  D01:
+    title: Target type for timestamptz columns (18 columns)
+    status: decided
+    options:
+      TIMESTAMP_TZ(6): Stores UTC plus the value's offset (+00:00 here). Compares by instant.
+        Keeps "this is a point in time" explicit to every consumer.
+      TIMESTAMP_NTZ(6): Wall-clock with no zone; we would store UTC by convention.
+        Simplest to hash and compare, but the UTC meaning lives only in documentation.
+      TIMESTAMP_LTZ(6): Stores UTC, displays in the session time zone. Output changes with
+        the client's TIMEZONE setting, which makes reconciliation output non-deterministic.
+    recommendation: TIMESTAMP_TZ(6)
+    rationale: Source values are instants (timestamptz). TZ preserves that without relying on
+      convention, and the source server is UTC so every offset will be +00:00.
+    decision: TIMESTAMP_TZ(6)
+
+  D02:
+    title: film.special_features (text[]) target type
+    status: decided
+    options:
+      ARRAY: Semi-structured array. Widest tool support (dbt, Soda, connectors); element
+        types not enforced.
+      ARRAY(VARCHAR(16777216)): Structured array; enforces element type. Newer feature, and
+        COPY INTO support for structured types is not documented, so the loader would cast.
+      VARCHAR(16777216): Delimited string. Loses structure; every consumer must re-split.
+    recommendation: ARRAY
+    rationale: Profile shows 4 distinct text values, max 4 elements, no null elements, so
+      element typing buys little; tool compatibility matters more for Phases 4-6.
+    decision: ARRAY
+
+  D03:
+    title: film.fulltext (tsvector)
+    status: decided
+    options:
+      exclude: Not migrated. Verified derivable, since all 1000 rows equal
+        to_tsvector('english', title || ' ' || description), maintained by a source trigger.
+      VARCHAR(16777216): Migrate the tsvector's text form. Snowflake can't use it for search;
+        it would only exist for parity.
+    recommendation: exclude
+    rationale: It is a Postgres-specific index-like structure, fully derivable from migrated
+      columns. Snowflake search uses SEARCH() / search optimization instead.
+    decision: exclude
+
+  D04:
+    title: film_embedding.embedding (pgvector vector(20)) target type
+    status: decided
+    options:
+      VECTOR(FLOAT, 20): Native vector of 32-bit floats; same element width as pgvector, so
+        values round-trip exactly. Snowflake can't load VECTOR directly; the loader lands
+        an ARRAY and casts.
+      ARRAY: Semi-structured array of numbers. Loads directly but loses the fixed dimension
+        and Snowflake's vector functions.
+    recommendation: VECTOR(FLOAT, 20)
+    rationale: Preserves type, dimension, and precision; the cast cost is one line in the
+      loader.
+    decision: VECTOR(FLOAT, 20)
+
+  D05:
+    title: film.length_hours (Postgres VIRTUAL generated column)
+    status: decided
+    options:
+      virtual: Snowflake virtual column, same expression. Not loaded; computed at query
+        time. Snowflake requires the expression's type to match exactly, hence the cast.
+      materialize: Load the computed values as a plain NUMBER(4,2) column. Can drift from
+        LENGTH if either is later updated.
+      exclude: Drop it and derive in dbt staging.
+    recommendation: virtual
+    rationale: Same semantics as the source (verified working in this account), no
+      storage, cannot go stale. Parity tests compare it like any other column.
+    decision: virtual
+
+  D06:
+    title: Views and the materialized view (8 relations)
+    status: decided
+    options:
+      exclude: Not migrated to RAW. Rebuild the ones the business needs as dbt models.
+      migrate_as_views: Hand-port each view's SQL to Snowflake views in RAW.
+    recommendation: exclude
+    rationale: Views hold no data, so there is nothing to reconcile; their logic belongs in
+      the transformation layer (Phase 6). rental_by_category is not even populated in the
+      source.
+    decision: exclude
+
+  D07:
+    title: uuid columns (customer, rental, payment) target type
+    status: decided
+    options:
+      UUID: Native Snowflake UUID type (verified). Validates format; output is lowercase.
+        Newer type; dbt-snowflake and Soda support is unverified.
+      VARCHAR(36): Plain string. Universally supported; no format validation.
+    recommendation: UUID
+    rationale: Type fidelity and format validation. Tool support gets checked in Phases 4
+      and 6; falling back to VARCHAR(36) is a one-line spec change.
+    decision: UUID
+
+  D08:
+    title: Enforce source domain and enum rules with Snowflake CHECK constraints
+    status: decided
+    options:
+      check: film.release_year CHECK (1901-2155) from the year domain, and film.rating
+        CHECK (IN 'G','PG','PG-13','R','NC-17') from the mpaa_rating enum. Snowflake
+        enforces CHECK (verified), so a bad value fails the load.
+      tests_only: No constraints; the same rules become data tests that report violations
+        after the load.
+    recommendation: check
+    rationale: The target should be at least as constrained as the source, and the source
+      data already satisfies both rules. Data tests still run on top.
+    decision: check
+
+  D09:
+    title: staff.password (text, credential hash)
+    status: decided
+    options:
+      migrate: Copy as-is and flag sensitive. Reconciliation covers it like other columns.
+      exclude: Not migrated. Removes the credential from the target entirely.
+    recommendation: migrate
+    rationale: Values are Pagila demo SHA-1 hashes, and a migration must be complete unless
+      a requirement says otherwise. On a real program this needs a data-owner sign-off;
+      log it as a waiver either way.
+    decision: migrate
+
+tables:
+  actor:
+    primary_key: [actor_id]
+    columns:
+      actor_id:    {source_type: integer, target_type: "NUMBER(38,0)", nullable: false}
+      first_name:  {source_type: text, target_type: "VARCHAR(16777216)", nullable: false}
+      last_name:   {source_type: text, target_type: "VARCHAR(16777216)", nullable: false}
+      last_update: {source_type: timestamp with time zone, target_type: "TIMESTAMP_TZ(6)", nullable: false, decision: D01}
+
+  address:
+    primary_key: [address_id]
+    columns:
+      address_id:  {source_type: integer, target_type: "NUMBER(38,0)", nullable: false}
+      address:     {source_type: text, target_type: "VARCHAR(16777216)", nullable: false}
+      address2:    {source_type: text, target_type: "VARCHAR(16777216)", nullable: true}
+      district:    {source_type: text, target_type: "VARCHAR(16777216)", nullable: false}
+      city_id:     {source_type: integer, target_type: "NUMBER(38,0)", nullable: false}
+      postal_code: {source_type: text, target_type: "VARCHAR(16777216)", nullable: true}
+      phone:       {source_type: text, target_type: "VARCHAR(16777216)", nullable: false}
+      last_update: {source_type: timestamp with time zone, target_type: "TIMESTAMP_TZ(6)", nullable: false, decision: D01}
+
+  category:
+    primary_key: [category_id]
+    columns:
+      category_id: {source_type: integer, target_type: "NUMBER(38,0)", nullable: false}
+      name:        {source_type: text, target_type: "VARCHAR(16777216)", nullable: false}
+      last_update: {source_type: timestamp with time zone, target_type: "TIMESTAMP_TZ(6)", nullable: false, decision: D01}
+
+  city:
+    primary_key: [city_id]
+    columns:
+      city_id:     {source_type: integer, target_type: "NUMBER(38,0)", nullable: false}
+      city:        {source_type: text, target_type: "VARCHAR(16777216)", nullable: false}
+      country_id:  {source_type: integer, target_type: "NUMBER(38,0)", nullable: false}
+      last_update: {source_type: timestamp with time zone, target_type: "TIMESTAMP_TZ(6)", nullable: false, decision: D01}
+
+  country:
+    primary_key: [country_id]
+    columns:
+      country_id:  {source_type: integer, target_type: "NUMBER(38,0)", nullable: false}
+      country:     {source_type: text, target_type: "VARCHAR(16777216)", nullable: false}
+      last_update: {source_type: timestamp with time zone, target_type: "TIMESTAMP_TZ(6)", nullable: false, decision: D01}
+
+  customer:
+    primary_key: [customer_id]
+    columns:
+      customer_id: {source_type: integer, target_type: "NUMBER(38,0)", nullable: false}
+      store_id:    {source_type: integer, target_type: "NUMBER(38,0)", nullable: false}
+      first_name:  {source_type: text, target_type: "VARCHAR(16777216)", nullable: false}
+      last_name:   {source_type: text, target_type: "VARCHAR(16777216)", nullable: false}
+      email:       {source_type: text, target_type: "VARCHAR(16777216)", nullable: true, sensitive: true}
+      address_id:  {source_type: integer, target_type: "NUMBER(38,0)", nullable: false}
+      activebool:  {source_type: boolean, target_type: BOOLEAN, nullable: false}
+      create_date: {source_type: date, target_type: DATE, nullable: false}
+      # Nullable here, unlike every other last_update column. Mirrored as-is.
+      last_update: {source_type: timestamp with time zone, target_type: "TIMESTAMP_TZ(6)", nullable: true, decision: D01}
+      # Legacy integer flag alongside activebool; both migrated as-is.
+      active:      {source_type: integer, target_type: "NUMBER(38,0)", nullable: true}
+      uuid:        {source_type: uuid, target_type: UUID, nullable: false, decision: D07}
+
+  film:
+    primary_key: [film_id]
+    columns:
+      film_id:              {source_type: integer, target_type: "NUMBER(38,0)", nullable: false}
+      title:                {source_type: text, target_type: "VARCHAR(16777216)", nullable: false}
+      description:          {source_type: text, target_type: "VARCHAR(16777216)", nullable: true}
+      # year domain: integer CHECK (VALUE BETWEEN 1901 AND 2155)
+      release_year:         {source_type: year, target_type: "NUMBER(38,0)", nullable: true, decision: D08,
+                             check: "RELEASE_YEAR BETWEEN 1901 AND 2155"}
+      language_id:          {source_type: integer, target_type: "NUMBER(38,0)", nullable: false}
+      original_language_id: {source_type: integer, target_type: "NUMBER(38,0)", nullable: true}
+      rental_duration:      {source_type: smallint, target_type: "NUMBER(38,0)", nullable: false}
+      rental_rate:          {source_type: "numeric(4,2)", target_type: "NUMBER(4,2)", nullable: false}
+      length:               {source_type: smallint, target_type: "NUMBER(38,0)", nullable: true}
+      replacement_cost:     {source_type: "numeric(5,2)", target_type: "NUMBER(5,2)", nullable: false}
+      # mpaa_rating enum: G, PG, PG-13, R, NC-17
+      rating:               {source_type: mpaa_rating, target_type: "VARCHAR(16777216)", nullable: true, decision: D08,
+                             check: "RATING IN ('G', 'PG', 'PG-13', 'R', 'NC-17')"}
+      last_update:          {source_type: timestamp with time zone, target_type: "TIMESTAMP_TZ(6)", nullable: false, decision: D01}
+      special_features:     {source_type: "text[]", target_type: ARRAY, nullable: true, decision: D02}
+      fulltext:             {source_type: tsvector, exclude: true, nullable: false, decision: D03}
+      length_hours:         {source_type: "numeric(4,2)", target_type: "NUMBER(4,2)", nullable: true, decision: D05,
+                             virtual: "ROUND(LENGTH / 60.0, 2)::NUMBER(4,2)"}
+
+  film_actor:
+    primary_key: [actor_id, film_id]
+    columns:
+      actor_id:    {source_type: integer, target_type: "NUMBER(38,0)", nullable: false}
+      film_id:     {source_type: integer, target_type: "NUMBER(38,0)", nullable: false}
+      last_update: {source_type: timestamp with time zone, target_type: "TIMESTAMP_TZ(6)", nullable: false, decision: D01}
+
+  film_category:
+    primary_key: [film_id, category_id]
+    columns:
+      film_id:     {source_type: integer, target_type: "NUMBER(38,0)", nullable: false}
+      category_id: {source_type: integer, target_type: "NUMBER(38,0)", nullable: false}
+      last_update: {source_type: timestamp with time zone, target_type: "TIMESTAMP_TZ(6)", nullable: false, decision: D01}
+
+  film_embedding:
+    primary_key: [film_id]
+    columns:
+      film_id:     {source_type: integer, target_type: "NUMBER(38,0)", nullable: false}
+      embedding:   {source_type: vector(20), target_type: "VECTOR(FLOAT, 20)", nullable: false, decision: D04}
+      last_update: {source_type: timestamp with time zone, target_type: "TIMESTAMP_TZ(6)", nullable: false, decision: D01}
+
+  inventory:
+    primary_key: [inventory_id]
+    columns:
+      inventory_id: {source_type: integer, target_type: "NUMBER(38,0)", nullable: false}
+      film_id:      {source_type: integer, target_type: "NUMBER(38,0)", nullable: false}
+      store_id:     {source_type: integer, target_type: "NUMBER(38,0)", nullable: false}
+      last_update:  {source_type: timestamp with time zone, target_type: "TIMESTAMP_TZ(6)", nullable: false, decision: D01}
+
+  language:
+    primary_key: [language_id]
+    columns:
+      language_id: {source_type: integer, target_type: "NUMBER(38,0)", nullable: false}
+      name:        {source_type: text, target_type: "VARCHAR(16777216)", nullable: false}
+      last_update: {source_type: timestamp with time zone, target_type: "TIMESTAMP_TZ(6)", nullable: false, decision: D01}
+
+  payment:
+    # Source is range-partitioned by payment_date into 55 monthly partitions.
+    # The PK includes payment_date because Postgres requires the partition key in it.
+    primary_key: [payment_date, payment_id]
+    columns:
+      payment_id:   {source_type: integer, target_type: "NUMBER(38,0)", nullable: false}
+      customer_id:  {source_type: integer, target_type: "NUMBER(38,0)", nullable: false}
+      staff_id:     {source_type: integer, target_type: "NUMBER(38,0)", nullable: false}
+      rental_id:    {source_type: integer, target_type: "NUMBER(38,0)", nullable: false}
+      amount:       {source_type: "numeric(5,2)", target_type: "NUMBER(5,2)", nullable: false}
+      payment_date: {source_type: timestamp with time zone, target_type: "TIMESTAMP_TZ(6)", nullable: false, decision: D01}
+      uuid:         {source_type: uuid, target_type: UUID, nullable: false, decision: D07}
+
+  rental:
+    primary_key: [rental_id]
+    columns:
+      rental_id:    {source_type: integer, target_type: "NUMBER(38,0)", nullable: false}
+      rental_date:  {source_type: timestamp with time zone, target_type: "TIMESTAMP_TZ(6)", nullable: false, decision: D01}
+      inventory_id: {source_type: integer, target_type: "NUMBER(38,0)", nullable: false}
+      customer_id:  {source_type: integer, target_type: "NUMBER(38,0)", nullable: false}
+      return_date:  {source_type: timestamp with time zone, target_type: "TIMESTAMP_TZ(6)", nullable: true, decision: D01}
+      staff_id:     {source_type: integer, target_type: "NUMBER(38,0)", nullable: false}
+      last_update:  {source_type: timestamp with time zone, target_type: "TIMESTAMP_TZ(6)", nullable: false, decision: D01}
+      uuid:         {source_type: uuid, target_type: UUID, nullable: false, decision: D07}
+
+  staff:
+    primary_key: [staff_id]
+    columns:
+      staff_id:    {source_type: integer, target_type: "NUMBER(38,0)", nullable: false}
+      first_name:  {source_type: text, target_type: "VARCHAR(16777216)", nullable: false}
+      last_name:   {source_type: text, target_type: "VARCHAR(16777216)", nullable: false}
+      address_id:  {source_type: integer, target_type: "NUMBER(38,0)", nullable: false}
+      email:       {source_type: text, target_type: "VARCHAR(16777216)", nullable: true, sensitive: true}
+      store_id:    {source_type: integer, target_type: "NUMBER(38,0)", nullable: false}
+      active:      {source_type: boolean, target_type: BOOLEAN, nullable: false}
+      username:    {source_type: text, target_type: "VARCHAR(16777216)", nullable: false}
+      password:    {source_type: text, target_type: "VARCHAR(16777216)", nullable: true, sensitive: true, decision: D09}
+      last_update: {source_type: timestamp with time zone, target_type: "TIMESTAMP_TZ(6)", nullable: false, decision: D01}
+      # All 1500 values are null in the source today; mapped for completeness.
+      picture:     {source_type: bytea, target_type: "BINARY(8388608)", nullable: true}
+
+  store:
+    primary_key: [store_id]
+    columns:
+      store_id:         {source_type: integer, target_type: "NUMBER(38,0)", nullable: false}
+      manager_staff_id: {source_type: integer, target_type: "NUMBER(38,0)", nullable: false}
+      address_id:       {source_type: integer, target_type: "NUMBER(38,0)", nullable: false}
+      last_update:      {source_type: timestamp with time zone, target_type: "TIMESTAMP_TZ(6)", nullable: false, decision: D01}
+
+excluded_relations:
+  actor_info:                 {kind: view, decision: D06}
+  customer_list:              {kind: view, decision: D06}
+  film_list:                  {kind: view, decision: D06}
+  nicer_but_slower_film_list: {kind: view, decision: D06}
+  rental_by_category:         {kind: materialized view, decision: D06}
+  sales_by_film_category:     {kind: view, decision: D06}
+  sales_by_store:             {kind: view, decision: D06}
+  staff_list:                 {kind: view, decision: D06}
