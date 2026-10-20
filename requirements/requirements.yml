@@ -71,6 +71,78 @@ migration:
     acceptance: Every contract verifies with zero failed checks and no runtime errors.
     layer: contract
 
+etl:
+  # Business rules for the dbt marts. The legacy rule lived in the source function
+  # get_customer_balance(), whose body never ran (it calls IF(), which doesn't exist in
+  # Postgres); these rules restate its documented intent, with human decisions on the gaps.
+  # All dates and months are UTC. dbt tests reference these IDs in config.meta.requirement.
+  ETL-001:
+    title: Revenue is attributed to the inventory's store
+    statement: A payment belongs to the store that owns the inventory item of the payment's
+      rental (payment -> rental -> inventory -> store), matching the legacy view
+      sales_by_store.
+    acceptance: Every payment is attributed to exactly one store.
+    layer: business_rule
+
+  ETL-002:
+    title: Monthly revenue by store
+    statement: For each store and UTC calendar month of payment_date, revenue is the sum of
+      payment amounts and payment_count is the number of payments, zero-amount payments
+      included (SRC-002). Months with no payments for a store have no row.
+    acceptance: Mart total revenue equals total payments; store totals equal the legacy
+      sales_by_store view.
+    layer: business_rule
+
+  ETL-003:
+    title: Customer lifetime value
+    statement: Every customer has one row. lifetime_revenue is the sum of all their payment
+      amounts (0.00 if none), payment_count and rental_count count their payments and
+      rentals, and first_payment_at / last_payment_at are their earliest and latest
+      payment_date (null if none). Payments dated before their rental count normally (SRC-001).
+    acceptance: One row per customer; sum of lifetime_revenue equals total payments.
+    layer: business_rule
+
+  ETL-004:
+    title: Rental due date
+    statement: A rental is due at rental_date plus the film's rental_duration in whole days,
+      to the exact second.
+    acceptance: due_at = rental_date + rental_duration days for every rental.
+    layer: business_rule
+
+  ETL-005:
+    title: Return status
+    statement: on_time if return_date is at or before due_at (returned exactly at due_at is
+      on time); late if after due_at; not_returned if return_date is null.
+    acceptance: Every rental has exactly one of the three statuses.
+    layer: business_rule
+
+  ETL-006:
+    title: Days late
+    statement: For late rentals, days_late is the time after due_at rounded up to whole days,
+      so any part of a day counts as a full day. It is 0 for on_time and null for
+      not_returned.
+    acceptance: 1 second late gives 1; exactly 24 hours late gives 1; 24 hours and 1 second
+      gives 2.
+    layer: business_rule
+
+  ETL-007:
+    title: Late fee
+    statement: A late rental is charged 1.00 per day late. If it is more than twice the film's
+      rental_duration overdue (measured on exact time after due_at), the film is treated as
+      lost and the fee is the film's replacement_cost instead of the daily fee. On-time
+      rentals are charged 0.00; never-returned rentals have a null fee (no as-of date to
+      accrue against).
+    acceptance: fee_basis is daily, replacement, none, or not_returned, consistent with the
+      amount; exactly 2x overdue is still the daily fee.
+    layer: business_rule
+
+  ETL-008:
+    title: Mart data contracts pass
+    statement: The Soda contracts on the three marts pass, asserting each mart's schema,
+      grain, required values, and valid value sets and ranges for consumers.
+    acceptance: Every mart contract verifies with zero failed checks and no runtime errors.
+    layer: contract
+
 known_source_issues:
   # Source data-quality findings. They migrate faithfully (MIG-005 proves it); whether
   # they are acceptable is a business decision recorded at sign-off.
