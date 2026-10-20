@@ -1,0 +1,32 @@
+dataset: pagila_target/PAGILA_MIG/MARTS/MART_CUSTOMER_LIFETIME_VALUE
+
+checks:
+  - schema:
+      allow_extra_columns: false
+  - row_count:
+      threshold:
+        must_be_greater_than: 0
+
+columns:
+  - name: CUSTOMER_ID
+    checks:
+      - missing:
+      - duplicate:
+  - name: STORE_ID
+    checks:
+      - missing:
+  - name: LIFETIME_REVENUE
+    checks:
+      - missing:
+      - invalid:
+          valid_min: 0
+  - name: PAYMENT_COUNT
+    checks:
+      - missing:
+      - invalid:
+          valid_min: 0
+  - name: RENTAL_COUNT
+    checks:
+      - missing:
+  - name: FIRST_PAYMENT_AT
+  - name: LAST_PAYMENT_AT

@@ -1,0 +1,51 @@
+dataset: pagila_target/PAGILA_MIG/MARTS/MART_RENTAL_RETURNS
+
+checks:
+  - schema:
+      allow_extra_columns: false
+  - row_count:
+      threshold:
+        must_be_greater_than: 0
+  - failed_rows:
+      name: Daily fee is one dollar per day late
+      expression: FEE_BASIS = 'daily' AND LATE_FEE <> DAYS_LATE * 1.00
+
+columns:
+  - name: RENTAL_ID
+    checks:
+      - missing:
+      - duplicate:
+  - name: CUSTOMER_ID
+    checks:
+      - missing:
+  - name: STORE_ID
+    checks:
+      - missing:
+  - name: FILM_ID
+    checks:
+      - missing:
+  - name: RENTAL_DATE
+    checks:
+      - missing:
+  - name: DUE_AT
+    checks:
+      - missing:
+  - name: RETURN_DATE
+  - name: RETURN_STATUS
+    checks:
+      - missing:
+      - invalid:
+          valid_values: ['on_time', 'late', 'not_returned']
+  - name: DAYS_LATE
+    checks:
+      - invalid:
+          valid_min: 0
+  - name: FEE_BASIS
+    checks:
+      - missing:
+      - invalid:
+          valid_values: ['none', 'daily', 'replacement', 'not_returned']
+  - name: LATE_FEE
+    checks:
+      - invalid:
+          valid_min: 0

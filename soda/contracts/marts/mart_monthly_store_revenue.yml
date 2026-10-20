@@ -1,0 +1,29 @@
+dataset: pagila_target/PAGILA_MIG/MARTS/MART_MONTHLY_STORE_REVENUE
+
+checks:
+  - schema:
+      allow_extra_columns: false
+  - row_count:
+      threshold:
+        must_be_greater_than: 0
+  - duplicate:
+      name: One row per store and month
+      columns: [STORE_ID, REVENUE_MONTH]
+
+columns:
+  - name: STORE_ID
+    checks:
+      - missing:
+  - name: REVENUE_MONTH
+    checks:
+      - missing:
+  - name: PAYMENT_COUNT
+    checks:
+      - missing:
+      - invalid:
+          valid_min: 1
+  - name: REVENUE
+    checks:
+      - missing:
+      - invalid:
+          valid_min: 0
