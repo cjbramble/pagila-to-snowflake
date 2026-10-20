@@ -22,6 +22,9 @@ What AI (Claude Code) generated in this project, what was wrong with it, and wha
 | 12 | 5 | `src/faults/inject.py` fingerprint (draft) | Hashed `GET_DDL`, which a clone reorders, so a correctly restored `FILM` looked unrestored | Apply/restore round trip | Structure is now fingerprinted from `DESC TABLE` and the PK columns |
 | 13 | 4→5 | `src/reconcile/rowhash.py` diff | Loaded rows into `{key: hash}` dicts, so duplicate target rows collapsed and MIG-005 ("no extra rows") passed with 2 duplicated rentals | Fault matrix (`duplicate_rows`); predicted before the run | Diff takes row lists and reports duplicated keys per side; unit tests added |
 | 14 | 4→5 | Vector normalization | 6-decimal rounding was over-conservative; a 1e-7 drift went undetected | Fault matrix (`tiny_vector_drift`) | Probe showed 9 decimals gives 0 false mismatches on 1,000 real embeddings and catches the drift; switched to 9 |
+| 15 | 6 | `mart_rental_returns.sql` (first build) | Output timestamps kept each input's UTC offset, violating "all dates are UTC" (same instant, different representation) | My own unit test's non-UTC fixture row | `CONVERT_TIMEZONE('UTC', ...)` on mart timestamps, also in the CLV mart |
+| 16 | 6 | `assert_late_fee_matches_basis.sql` (draft) | Correlated subquery in a JOIN condition (unsupported in Snowflake), and a loose `<= 2 x duration + 1` bound | `dbt build` error, then self-review | Plain joins; exact `between 1 and 2 x duration` bound |
+| 17 | 6 | Phase 0 dependency choice | Picked `snowflake-connector-python` 5.0 without checking downstream adapters; dbt-snowflake 1.12 requires < 5.0 | `uv add dbt-snowflake` resolution failure | Human chose to pin 4.x; dropped the 5.0-only option; full reload and suite re-run first |
 
 ## Phase 1: Source profiling
 
@@ -107,3 +110,28 @@ What AI (Claude Code) generated in this project, what was wrong with it, and wha
   - The Soda contracts catch only duplicates.
   - The process layer can't see post-load corruption.
   - Faults run one at a time, so masking combinations are untested.
+
+## Phase 6: ETL with dbt
+
+- **Source finding:** the legacy business rule lives in `get_customer_balance()`, and its body never ran. It calls `IF()`, which doesn't exist in Postgres, and it was loaded with `check_function_bodies = false`. Its comment promises a replacement-cost rule that the body never implements. So the rules were re-specified from the documented intent instead of being ported.
+- **Human decisions** (asked before any model was written):
+  - Days late round up.
+  - Replacement cost replaces the daily fee when more than 2x overdue.
+  - Never-returned rentals are flagged with no fee.
+  - Revenue goes to the inventory's store, as the legacy `sales_by_store` view does.
+  - The connector is pinned to 4.x (defect 17).
+- **Generated:**
+  - ETL-001 to ETL-008 in `requirements.yml`, written before the models
+  - 6 staging views and 3 marts
+  - 3 dbt unit tests, 14 data tests, and 5 singular tests, each tagged `config.meta.requirement`
+  - a Postgres re-implementation of every rule in `tests/etl/`
+  - 3 mart Soda contracts
+  - a manifest-based traceability test
+- **Designed around:** Snowflake `DATEDIFF` counts unit boundaries crossed, not elapsed time, so lateness is measured in microseconds. A sub-second unit-test row (1 day + 0.1 s late must be 2 days) pins it.
+- **Validation:**
+  - 7 rule mutations of the late-returns model: floor, `DATEDIFF(second)`, `<` vs `<=`, `>=` at 2x, additive replacement, fee on never-returned, and due date off by one. The unit test caught all 7.
+  - The Postgres re-implementation matches the marts on every store-month, all 999 customers, and all 51,805 rentals.
+  - Mart store totals equal the legacy view.
+  - A floor-for-ceil source mutation flagged exactly the 27,738 partial-day late rentals from profiling.
+  - A planted wrong fee failed the Soda `failed_rows` check.
+  - A dropped meta tag failed the traceability test.

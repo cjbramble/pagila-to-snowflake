@@ -7,7 +7,8 @@ A small, realistic data-migration test program: migrate the Pagila sample databa
 ```bash
 docker compose up -d                                        # source Postgres on localhost:5434
 uv run --env-file .env python -m migrate.load               # migrate all tables to PAGILA_MIG.RAW
-uv run --env-file .env pytest                               # spec, loader, and reconciliation suite
+(cd dbt && uv run --env-file ../.env dbt build --profiles-dir .)   # staging + marts, unit and data tests
+uv run --env-file .env pytest                               # spec, loader, reconciliation, ETL suite
 uv run --env-file .env python -m faults.matrix              # inject each fault, score detection (~8 min)
 ```
 
@@ -26,6 +27,18 @@ Cheap to expensive. Each test is tagged with a requirement in `requirements/requ
 | Row | MIG-005 | Normalized MD5 per primary key, both sides | Any changed, missing, or extra row, reported by key |
 | Integrity | MIG-007, MIG-008 | Orphans for 23 relationships; domain rules | Broken references (Snowflake doesn't enforce FKs) |
 | Contract | MIG-009 | Soda contracts on key RAW tables | Rule violations in the target itself |
+| Business rule | ETL-001 to ETL-007 | dbt unit tests (edge cases), dbt data tests, and marts vs an independent Postgres implementation | Wrong rule logic, boundary errors, join fan-out or loss |
+| Mart contract | ETL-008 | Soda contracts on the three marts | Grain, value sets, fee consistency for consumers |
+
+## dbt marts
+
+| Mart | Grain | Rules |
+|---|---|---|
+| `MARTS.MART_MONTHLY_STORE_REVENUE` | store × UTC month | ETL-001, ETL-002 |
+| `MARTS.MART_CUSTOMER_LIFETIME_VALUE` | customer | ETL-003 |
+| `MARTS.MART_RENTAL_RETURNS` | rental | ETL-004 to ETL-007: due date, status, days late, late fee |
+
+Rules are written in plain English in `requirements/requirements.yml`. Every dbt test declares its rule in `config.meta.requirement`, and `tests/test_etl_traceability.py` fails if a rule has no dbt test.
 
 ## Soda Core vs the custom pytest layer
 
