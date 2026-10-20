@@ -10,6 +10,8 @@ uv run --env-file .env python -m migrate.load               # migrate all tables
 (cd dbt && uv run --env-file ../.env dbt build --profiles-dir .)   # staging + marts, unit and data tests
 uv run --env-file .env pytest                               # spec, loader, reconciliation, ETL suite
 uv run --env-file .env python -m faults.matrix              # inject each fault, score detection (~8 min)
+uv run --env-file .env python -m reconcile.record           # store a suite run in QA.RECON_RESULTS
+uv run --env-file .env python -m reconcile.summarize        # Cortex summary of its failures, fact-checked
 ```
 
 Setup (Snowflake account, key pair, `.env`) is covered in `sql/snowflake_setup.sql` and `.env.example`.
@@ -39,6 +41,17 @@ Cheap to expensive. Each test is tagged with a requirement in `requirements/requ
 | `MARTS.MART_RENTAL_RETURNS` | rental | ETL-004 to ETL-007: due date, status, days late, late fee |
 
 Rules are written in plain English in `requirements/requirements.yml`. Every dbt test declares its rule in `config.meta.requirement`, and `tests/test_etl_traceability.py` fails if a rule has no dbt test.
+
+## AI in the workflow
+
+| Piece | What it does | Evidence |
+|---|---|---|
+| `dq-triage` agent (`.claude/agents/`) | Given failing check output, queries both databases and reports the affected rows, pattern, root cause, fix, and the earliest catching check | Blind test on 4 random faults: 31/32, compliance 4/4 (`AI_LOG.md`) |
+| Read-only access (`src/triage/query.py`) | The agent's only database tool: Postgres `dq_triage` and Snowflake `PAGILA_TRIAGE_SVC`, both SELECT-only | Writes rejected on both databases, including with read-only mode forced off |
+| AI-generated SQL | Validation queries written from requirement IDs, then human-reviewed | 5 defects, one latent `DATEDIFF` bug (`reports/ai_sql_review.md`) |
+| Cortex `AI_SUMMARIZE_AGG` | Summarizes a recorded run's failures; output is fact-checked for invented or omitted facts | The only AI function a trial account allows; about $0.0007 per call |
+
+Setup for the agent's identities: `docker/init/03-triage-role.sh` (Postgres) and `sql/snowflake_triage_reader.sql` (Snowflake, run as ACCOUNTADMIN).
 
 ## Soda Core vs the custom pytest layer
 

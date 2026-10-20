@@ -25,6 +25,13 @@ What AI (Claude Code) generated in this project, what was wrong with it, and wha
 | 15 | 6 | `mart_rental_returns.sql` (first build) | Output timestamps kept each input's UTC offset, violating "all dates are UTC" (same instant, different representation) | My own unit test's non-UTC fixture row | `CONVERT_TIMEZONE('UTC', ...)` on mart timestamps, also in the CLV mart |
 | 16 | 6 | `assert_late_fee_matches_basis.sql` (draft) | Correlated subquery in a JOIN condition (unsupported in Snowflake), and a loose `<= 2 x duration + 1` bound | `dbt build` error, then self-review | Plain joins; exact `between 1 and 2 x duration` bound |
 | 17 | 6 | Phase 0 dependency choice | Picked `snowflake-connector-python` 5.0 without checking downstream adapters; dbt-snowflake 1.12 requires < 5.0 | `uv add dbt-snowflake` resolution failure | Human chose to pin 4.x; dropped the 5.0-only option; full reload and suite re-run first |
+| 18 | 7 | dq-triage agent, trial 3 | Stated that RAW.RENTAL has no primary key without checking; it has `RENTAL_PK` (declared, not enforced). Root cause also contradicted its own evidence (blamed a load retry although LOAD_LOG's count showed the extra rows arrived after the load) | Blind-test scoring against ground truth | Recorded; scored 1/2 on root cause. Pattern to watch: confident, plausible, unverified claims |
+| 19 | 7 | AI-generated SQL, ETL-006 | Boundary diagnostics used `DATEDIFF('second')`, which counts boundaries crossed: 1 day + 0.8 s late reads as exactly 1 day. Latent: correct on today's data (12 = 12), wrong by construction; the agent's own self-consistency query used microseconds | Claude review, literal-value probe; confirmed by human | Logged; `reports/ai_sql_review.md` finding A |
+| 20 | 7 | AI-generated SQL, ETL-002 | `c1` checksum weights payment_count by month only, with no store term, so counts moved between stores in a month go unnoticed | Claude review; confirmed by human | Logged; finding B |
+| 21 | 7 | AI-generated SQL, ETL-002 | Skipped the acceptance criterion comparing store totals with the legacy `sales_by_store` view (the agent disclosed this) | Claude review; confirmed by human | Logged; finding C |
+| 22 | 7 | AI-generated SQL, all three | Aggregate fingerprints instead of row-level comparison; offsetting errors pass (the agent flagged this, citing the 200-row tool cap) | Claude review; confirmed by human | Logged; finding D |
+| 23 | 7 | AI-generated SQL, MIG-004 | The SQL it delivered was abbreviated (`UNION ALL ...`), so it can't be reviewed or reused as delivered | Claude review; confirmed by human | Logged; finding E |
+| 24 | 7 | `src/reconcile/summarize.py` fact check (first version) | Checked requirement IDs and tables only; a Cortex summary that misattributed metrics to `payment_date` passed | Claude's close reading of a passing summary | Added an invented-number check; docstring states the check can't judge wording |
 
 ## Phase 1: Source profiling
 
@@ -135,3 +142,55 @@ What AI (Claude Code) generated in this project, what was wrong with it, and wha
   - A floor-for-ceil source mutation flagged exactly the 27,738 partial-day late rentals from profiling.
   - A planted wrong fee failed the Soda `failed_rows` check.
   - A dropped meta tag failed the traceability test.
+
+## Phase 7: Triage agent blind test
+
+- **Setup:**
+  - `.claude/agents/dq-triage.md` (Sonnet) gets only the failing pytest output.
+  - It reads the databases through `src/triage/query.py`, using identities that can't write. Postgres has `dq_triage` (SELECT only, read-only transactions). Snowflake has `PAGILA_TRIAGE_SVC` / `PAGILA_TRIAGE` (SELECT only, no secondary roles).
+  - Fault backups live in a `FAULTS` schema the triage role can't see.
+  - It's barred from the fault files. Compliance was checked by searching each transcript for reads, commands, and write SQL.
+- **Draw:** 4 faults chosen at random (seed 886882). The scoring rubric was fixed before reading any answer: 0-2 each for locate, pattern, root cause, and remediation + earliest test.
+
+| Trial | Fault (ground truth) | Locate | Pattern | Root cause | Remediation | Total | Compliance | Queries |
+|---|---|---|---|---|---|---|---|---|
+| 1 | `tiny_vector_drift` | 2 | 2 | 2 | 2 | 8 | pass | 30 |
+| 2 | `drop_rows` | 2 | 2 | 2 | 2 | 8 | pass | 18 |
+| 3 | `duplicate_rows` | 2 | 2 | 1 | 2 | 7 | pass | 30 |
+| 4 | `drop_check_constraint` | 2 | 2 | 2 | 2 | 8 | pass | 18 |
+| | | **8/8** | **8/8** | **7/8** | **8/8** | **31/32** | **4/4** | |
+
+- **Where it was strong:**
+  - It located the affected rows and described the change correctly every time.
+  - It reconciled aggregate deltas exactly to the affected rows to prove nothing else changed, e.g. amount -9.97 = 1.99 + 0.99 + 6.99.
+  - It used evidence I hadn't planned for: float32 ulp spacing, and `LAST_ALTERED` vs `CREATED` timestamps.
+- **Where it failed (defect 18):**
+  - It asserted a non-existent fact (no PK on RENTAL).
+  - In trial 3 it reasoned inconsistently. It drew the right "post-load change" inference from LOAD_LOG counts in trial 2, then missed the same inference in trial 3.
+- **Found a real gap in my suite:** trials 2 and 3 independently recommended comparing `LOAD_LOG.ROWS_LOADED` with the table's current `COUNT(*)`. MIG-006 trusts the log's own count, so post-load changes are invisible to it.
+- **Access limit it hit:** the triage role can't read `QUERY_HISTORY`, which would have confirmed the mechanism in every trial. It said "unknown" rather than guessing, which is correct behaviour.
+- **Caveats:**
+  - N = 4.
+  - Single-cause faults from a catalog I wrote.
+  - The agent knows the codebase.
+  - The grader (Claude) shares a model family with the agent, so the scores are evidence, not proof.
+
+## Phase 7: AI-generated SQL from requirement IDs
+
+- **Exercise:** the `dq-triage` agent wrote validation SQL for ETL-006, ETL-002, and MIG-004 (rental) from the requirement text, the mapping spec, and live data, and was barred from the existing implementation. It ran every query read-only. All three requirements hold, and every query ran.
+- **Review:** Claude reviewed it and probed the suspect construct with literal values. The human confirmed all 5 findings (defects 19-23, details in `reports/ai_sql_review.md`).
+- **Takeaways:**
+  - The most important defect (19) is invisible to "it ran and the numbers matched". It took knowing the dialect trap and constructing a counterexample.
+  - The agent was candid about its own blind spots (21, 22) but didn't fix them.
+  - "Valid SQL that matches on today's data" is not the same as "a correct check".
+
+## Phase 7: Snowflake Cortex
+
+- **Availability (verified in the account; the docs pages read didn't mention it):** on a trial account only `AI_SUMMARIZE_AGG` runs. `AI_CLASSIFY`, `AI_COMPLETE`, `AI_SENTIMENT`, `AI_FILTER`, `AI_COUNT_TOKENS`, and legacy `SNOWFLAKE.CORTEX.COMPLETE` return `399258: not available for trial accounts`. The planned use (classify film descriptions against their categories) wasn't possible.
+- **Use (human choice):**
+  - `python -m reconcile.record` stores a pytest run in `QA.RECON_RESULTS`.
+  - `python -m reconcile.summarize` has `AI_SUMMARIZE_AGG` summarize the failures, then fact-checks the summary for invented requirements, tables, or numbers and for omitted failures.
+- **Result on a faulted run (`drop_rows`):**
+  - The summary named the right 4 requirements and table, and the "3 rows" count, and passed the check.
+  - Close reading still found a misattribution: min and sum differences claimed for `payment_date`, where only the distinct count differed (defect 24).
+- **Cost:** 0.000355 credits per call (about $0.0007), from `ACCOUNT_USAGE.CORTEX_AI_FUNCTIONS_USAGE_HISTORY`.
