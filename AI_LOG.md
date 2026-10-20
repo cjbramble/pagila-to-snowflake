@@ -14,6 +14,9 @@ What AI (Claude Code) generated in this project, what was wrong with it, and wha
 | 4 | 2 | Snowflake type assumptions (recall) | Recalled knowledge said Snowflake has no UUID type, no generated columns, and enforces only NOT NULL. All three are out of date | Docs check, then live probe in the account | Spec uses native `UUID`, a virtual column, and offers `CHECK` |
 | 5 | 2 | Virtual column DDL probe | `NUMBER(4,2) AS (ROUND(...))` failed: Snowflake requires the expression type to match exactly, unlike Postgres | Live probe | Spec expression casts: `::NUMBER(4,2)` |
 | 6 | 2 | `mapping/type_mapping.yml` | Plain YAML scalar contained `": "`, so the file did not parse | First test run | Reworded; scanned the file for other instances (none) |
+| 7 | 2→3 | D08 recommendation (`CHECK`) | Recommended CHECK constraints after probing only `INSERT`. Snowflake rejects `COPY INTO` on tables with CHECK constraints, so `film` failed to load | First real load | Human chose to keep D08; loader lands CHECK tables in a temporary table, then `INSERT`s |
+| 8 | 3 | `src/migrate/load.py` (draft) | argparse `choices=[[], ...]` hack, a magic number for psycopg's in-error transaction state, and an internal connector type path | Self-review before first run | Explicit table validation, `TransactionStatus.INERROR`, public import paths |
+| 9 | 3 | Verification commands (ad hoc) | Passed `-c` to `sh` instead of `psql` (psql waited on stdin until timeout); used reserved word `rows` as a Snowflake alias | Hang, then a syntax error | Corrected; no effect on project files |
 
 ## Phase 1: Source profiling
 
@@ -44,3 +47,16 @@ What AI (Claude Code) generated in this project, what was wrong with it, and wha
 | D07 uuid | `UUID` | Accepted. Revisit if dbt or Soda can't handle the type |
 | D08 domain/enum | `CHECK` | Accepted |
 | D09 staff.password | migrate | Accepted. Flagged sensitive; record as a waiver at sign-off |
+
+## Phase 3: Migration loader
+
+- **Generated:** `src/migrate/ddl.py` (DDL from the spec), `src/migrate/load.py` (extract → Parquet → PUT → COPY, with `QA.LOAD_LOG`), and `tests/test_loader.py`.
+- **Probes before design.** I wrote a Parquet file with every target type and read it in Snowflake three ways. Three hazards that recalled knowledge wouldn't have predicted:
+  - The default Parquet scanner decodes binary as UTF-8 and fails on non-text bytes, so the loader uses `USE_VECTORIZED_SCANNER = TRUE`.
+  - Parquet timestamps arrive as `TIMESTAMP_LTZ`. With the account's default `America/Los_Angeles` session, a cast to `TIMESTAMP_TZ` stores `-08:00` offsets, so every project connection sets `TIMEZONE = 'UTC'`.
+  - A Parquet list won't cast straight to `VECTOR`, so the loader goes through `::ARRAY::VECTOR(FLOAT, 20)`.
+- **Validation:**
+  - Spot values and aggregates matched Postgres: payment sum, distinct UUIDs, microseconds, `Z` offsets, float32 embeddings, the virtual column sum, array order.
+  - The CHECK constraint rejected a bad rating after loading.
+  - Idempotency: per-table `COUNT(*)` and `HASH_AGG(*)` were identical before and after a re-run.
+- **Human decision:** keep D08 and load `film` through a landing table (see defect 7).
