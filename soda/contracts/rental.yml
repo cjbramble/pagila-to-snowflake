@@ -1,0 +1,44 @@
+dataset: pagila_target/PAGILA_MIG/RAW/RENTAL
+
+checks:
+  - schema:
+      allow_extra_columns: false
+  - row_count:
+      threshold:
+        must_be_greater_than: 0
+  - duplicate:
+      name: Natural key is unique
+      columns: [RENTAL_DATE, INVENTORY_ID, CUSTOMER_ID]
+
+columns:
+  - name: RENTAL_ID
+    checks:
+      - missing:
+      - duplicate:
+  - name: RENTAL_DATE
+    checks:
+      - missing:
+  - name: INVENTORY_ID
+    checks:
+      - missing:
+  - name: CUSTOMER_ID
+    checks:
+      - missing:
+  - name: RETURN_DATE
+    checks:
+      # Null means not yet returned; the source has 0.47%.
+      - missing:
+          name: Few unreturned rentals
+          threshold:
+            metric: percent
+            must_be_less_than: 1
+  - name: STAFF_ID
+    checks:
+      - missing:
+  - name: LAST_UPDATE
+    checks:
+      - missing:
+  - name: UUID
+    checks:
+      - missing:
+      - duplicate:

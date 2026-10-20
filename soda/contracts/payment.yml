@@ -1,0 +1,40 @@
+dataset: pagila_target/PAGILA_MIG/RAW/PAYMENT
+
+checks:
+  - schema:
+      allow_extra_columns: false
+  - row_count:
+      threshold:
+        must_be_greater_than: 0
+  - duplicate:
+      name: Primary key is unique
+      columns: [PAYMENT_DATE, PAYMENT_ID]
+
+columns:
+  - name: PAYMENT_ID
+    checks:
+      - missing:
+      - duplicate:
+  - name: CUSTOMER_ID
+    checks:
+      - missing:
+  - name: STAFF_ID
+    checks:
+      - missing:
+  - name: RENTAL_ID
+    checks:
+      - missing:
+  - name: AMOUNT
+    checks:
+      - missing:
+      - invalid:
+          name: Amount is non-negative and fits NUMBER(5,2)
+          valid_min: 0
+          valid_max: 999.99
+  - name: PAYMENT_DATE
+    checks:
+      - missing:
+  - name: UUID
+    checks:
+      - missing:
+      - duplicate:

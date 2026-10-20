@@ -14,6 +14,8 @@ dependencies = [
 dev = [
     "pytest>=9.1",
     "ruff>=0.17",
+    "soda-postgres>=4.28",
+    "soda-snowflake>=4.28",
 ]
 
 [build-system]
@@ -21,7 +23,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/migrate"]
+packages = ["src/migrate", "src/reconcile"]
 
 [tool.ruff]
 line-length = 100
@@ -33,4 +35,11 @@ select = ["E", "F", "I", "UP", "B"]
 testpaths = ["tests"]
 markers = [
     "source_db: needs the source Postgres (PG* env vars)",
+    "target_db: needs Snowflake (connection from ~/.snowflake/connections.toml)",
+]
+filterwarnings = [
+    # Both raised inside Soda Core: its own Snowflake connection doesn't set the new
+    # connector option (migrate.snowflake_conn does), and an internal SQL AST class.
+    "ignore:enable_server_session_keep_alive_auto_detection:FutureWarning",
+    "ignore::DeprecationWarning:soda_core.common.sql_ast",
 ]
