@@ -1,4 +1,8 @@
-"""Run the reconciliation and ETL suites and store the results in QA.RECON_RESULTS.
+"""Run the full test suite and store the results in QA.RECON_RESULTS.
+
+The whole suite runs, not just tests/reconciliation and tests/etl, because requirements
+live elsewhere too (MIG-001 is in tests/test_mapping_spec.py); a recorded run must cover
+every requirement or a failing run can be stored, and summarized, as clean.
 
 Usage: python -m reconcile.record   (prints the new run id)
 """
@@ -10,7 +14,7 @@ from migrate.snowflake_conn import connect
 from reconcile.results import run_pytest
 
 RECON_RESULTS = "PAGILA_MIG.QA.RECON_RESULTS"
-SUITES = ["tests/reconciliation", "tests/etl"]
+SUITES = ["tests"]
 MAX_MESSAGE = 2000
 
 CREATE_SQL = f"""CREATE TABLE IF NOT EXISTS {RECON_RESULTS} (
