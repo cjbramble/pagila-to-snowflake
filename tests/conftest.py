@@ -1,13 +1,22 @@
-"""Requirement traceability: validate @pytest.mark.req IDs and summarize results by requirement."""
+"""Requirement traceability and shared database fixtures.
+
+Validates @pytest.mark.req IDs, summarizes results by requirement, and provides
+session-scoped connections to the source (pg) and target (sf).
+"""
 
 from collections import defaultdict
 from pathlib import Path
 
+import psycopg
 import pytest
 import yaml
 
+from migrate.mapping import load_spec
+from migrate.snowflake_conn import connect
+
 REQUIREMENTS_PATH = Path(__file__).resolve().parents[1] / "requirements" / "requirements.yml"
-REQUIREMENTS = yaml.safe_load(REQUIREMENTS_PATH.read_text())["migration"]
+_requirements_file = yaml.safe_load(REQUIREMENTS_PATH.read_text())
+REQUIREMENTS = {**_requirements_file["migration"], **_requirements_file["etl"]}
 
 # requirement ID -> list of (test node id, outcome)
 _results: dict[str, list[tuple[str, str]]] = defaultdict(list)
@@ -73,3 +82,22 @@ def pytest_terminal_summary(terminalreporter):
             green=status == "PASS",
             yellow=status == "INCOMPLETE",
         )
+
+
+@pytest.fixture(scope="session")
+def spec():
+    return load_spec()
+
+
+@pytest.fixture(scope="session")
+def pg():
+    # UTC session, so interval arithmetic on timestamptz never crosses a DST change.
+    with psycopg.connect(autocommit=True, options="-c TimeZone=UTC") as conn:
+        conn.read_only = True
+        yield conn
+
+
+@pytest.fixture(scope="session")
+def sf():
+    with connect() as conn:
+        yield conn
