@@ -1,0 +1,45 @@
+dataset: pagila_target/PAGILA_MIG/RAW/CUSTOMER
+
+checks:
+  - schema:
+      allow_extra_columns: false
+  - row_count:
+      threshold:
+        must_be_greater_than: 0
+
+columns:
+  - name: CUSTOMER_ID
+    checks:
+      - missing:
+      - duplicate:
+  - name: STORE_ID
+    checks:
+      - missing:
+  - name: FIRST_NAME
+    checks:
+      - missing:
+  - name: LAST_NAME
+    checks:
+      - missing:
+  - name: EMAIL
+    checks:
+      - invalid:
+          name: Email looks like an email
+          valid_format:
+            name: Email format
+            regex: ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$
+  - name: ADDRESS_ID
+    checks:
+      - missing:
+  - name: ACTIVEBOOL
+    checks:
+      - missing:
+  - name: CREATE_DATE
+    checks:
+      - missing:
+  - name: LAST_UPDATE
+  - name: ACTIVE
+  - name: UUID
+    checks:
+      - missing:
+      - duplicate:

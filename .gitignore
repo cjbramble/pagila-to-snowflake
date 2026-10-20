@@ -31,6 +31,8 @@ dbt/dbt_packages/
 dbt/logs/
 dbt/.user.yml
 profiles.yml
+# The project profile reads every credential via env_var(), so it is safe to commit.
+!dbt/profiles.yml
 
 # Soda
 soda/**/*.local.yml

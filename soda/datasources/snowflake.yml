@@ -1,0 +1,13 @@
+type: snowflake
+name: pagila_target
+connection:
+  account: ${env.SNOWFLAKE_ACCOUNT}
+  user: PAGILA_SVC
+  authenticator: SNOWFLAKE_JWT
+  private_key_path: ${env.SNOWFLAKE_PRIVATE_KEY_PATH}
+  role: PAGILA_ROLE
+  warehouse: PAGILA_WH
+  database: PAGILA_MIG
+  session_parameters:
+    TIMEZONE: UTC
+    QUERY_TAG: pagila-soda

@@ -1,0 +1,164 @@
+# Requirements for the Pagila → Snowflake migration.
+#
+# Tests reference these IDs with @pytest.mark.req("MIG-003"). Collection fails on an
+# unknown ID, and the traceability report (Phase 8) maps each ID to its tests.
+#
+# Fields: title, statement (testable, plain English), acceptance (pass criteria), layer.
+
+migration:
+  MIG-001:
+    title: Mapping spec covers the source
+    statement: Every source table and column is either mapped in mapping/type_mapping.yml
+      or explicitly excluded, and every recorded source type matches the live source.
+    acceptance: No unmapped, unknown, or type-drifted columns; no open mapping decisions.
+    layer: spec
+
+  MIG-002:
+    title: Target schema matches the spec
+    statement: Each RAW table has exactly the spec's columns, in spec order, with the spec's
+      target type, nullability, virtual expression, primary key, and CHECK constraints.
+    acceptance: Zero differences between DESC TABLE output and the spec, per table.
+    layer: schema
+
+  MIG-003:
+    title: Row counts match
+    statement: Each RAW table has the same number of rows as its source table.
+    acceptance: Count difference is exactly 0 for every table.
+    layer: volume
+
+  MIG-004:
+    title: Column aggregates match
+    statement: For every migrated column, null count matches; for comparable types, distinct
+      count, minimum, maximum, and (numerics) sum also match.
+    acceptance: Every metric equal for every column of every table.
+    layer: aggregate
+
+  MIG-005:
+    title: Row content matches
+    statement: Every source row exists in the target with identical content, compared by
+      primary key on a normalized row hash; no extra rows exist in the target.
+    acceptance: Zero missing, extra, or changed keys; failures list the offending keys.
+    layer: row
+
+  MIG-006:
+    title: Load run is complete and logged
+    statement: For every spec table, its most recent QA.LOAD_LOG entry has status SUCCESS
+      and rows_loaded equal to rows_extracted, and the table still holds exactly
+      rows_loaded rows, so rows added or removed after the load are caught. Partial reloads
+      are allowed, so the latest entries may come from different runs.
+    acceptance: Every spec table has a latest entry, every latest entry is SUCCESS with
+      equal counts, and each table's current COUNT(*) equals its latest rows_loaded.
+    layer: process
+
+  MIG-007:
+    title: Referential integrity holds in the target
+    statement: Snowflake does not enforce foreign keys, so every relationship in the source
+      model has no orphaned child rows in RAW.
+    acceptance: Zero orphans for every relationship.
+    layer: integrity
+
+  MIG-008:
+    title: Source domain rules hold in the target
+    statement: film.rating is one of G, PG, PG-13, R, NC-17 and film.release_year is between
+      1901 and 2155 (decision D08), and the CHECK constraints enforcing them exist.
+    acceptance: Zero violating rows; both CHECK constraints present on RAW.FILM.
+    layer: integrity
+
+  MIG-009:
+    title: Target data contracts pass
+    statement: The Soda data contracts for the key RAW tables (payment, rental, film,
+      customer) pass. They assert schema shape, required values, key uniqueness, valid
+      values, and value ranges on the target itself.
+    acceptance: Every contract verifies with zero failed checks and no runtime errors.
+    layer: contract
+
+etl:
+  # Business rules for the dbt marts. The legacy rule lived in the source function
+  # get_customer_balance(), whose body never ran (it calls IF(), which doesn't exist in
+  # Postgres); these rules restate its documented intent, with human decisions on the gaps.
+  # All dates and months are UTC. dbt tests reference these IDs in config.meta.requirement.
+  ETL-001:
+    title: Revenue is attributed to the inventory's store
+    statement: A payment belongs to the store that owns the inventory item of the payment's
+      rental (payment -> rental -> inventory -> store), matching the legacy view
+      sales_by_store.
+    acceptance: Every payment is attributed to exactly one store.
+    layer: business_rule
+
+  ETL-002:
+    title: Monthly revenue by store
+    statement: For each store and UTC calendar month of payment_date, revenue is the sum of
+      payment amounts and payment_count is the number of payments, zero-amount payments
+      included (SRC-002). Months with no payments for a store have no row.
+    acceptance: Mart total revenue equals total payments; store totals equal the legacy
+      sales_by_store view.
+    layer: business_rule
+
+  ETL-003:
+    title: Customer lifetime value
+    statement: Every customer has one row. lifetime_revenue is the sum of all their payment
+      amounts (0.00 if none), payment_count and rental_count count their payments and
+      rentals, and first_payment_at / last_payment_at are their earliest and latest
+      payment_date (null if none). Payments dated before their rental count normally (SRC-001).
+    acceptance: One row per customer; sum of lifetime_revenue equals total payments.
+    layer: business_rule
+
+  ETL-004:
+    title: Rental due date
+    statement: A rental is due at rental_date plus the film's rental_duration in whole days,
+      to the exact second.
+    acceptance: due_at = rental_date + rental_duration days for every rental.
+    layer: business_rule
+
+  ETL-005:
+    title: Return status
+    statement: on_time if return_date is at or before due_at (returned exactly at due_at is
+      on time); late if after due_at; not_returned if return_date is null.
+    acceptance: Every rental has exactly one of the three statuses.
+    layer: business_rule
+
+  ETL-006:
+    title: Days late
+    statement: For late rentals, days_late is the time after due_at rounded up to whole days,
+      so any part of a day counts as a full day. It is 0 for on_time and null for
+      not_returned.
+    acceptance: 1 second late gives 1; exactly 24 hours late gives 1; 24 hours and 1 second
+      gives 2.
+    layer: business_rule
+
+  ETL-007:
+    title: Late fee
+    statement: A late rental is charged 1.00 per day late. If it is more than twice the film's
+      rental_duration overdue (measured on exact time after due_at), the film is treated as
+      lost and the fee is the film's replacement_cost instead of the daily fee. On-time
+      rentals are charged 0.00; never-returned rentals have a null fee (no as-of date to
+      accrue against).
+    acceptance: fee_basis is daily, replacement, none, or not_returned, consistent with the
+      amount; exactly 2x overdue is still the daily fee.
+    layer: business_rule
+
+  ETL-008:
+    title: Mart data contracts pass
+    statement: The Soda contracts on the three marts pass, asserting each mart's schema,
+      grain, required values, and valid value sets and ranges for consumers.
+    acceptance: Every mart contract verifies with zero failed checks and no runtime errors.
+    layer: contract
+
+known_source_issues:
+  # Source data-quality findings. They migrate faithfully (MIG-005 proves it); whether
+  # they are acceptable is a business decision recorded at sign-off.
+  SRC-001:
+    title: Payments dated before their rental
+    detail: 14,665 of 51,061 payments (29%) have payment_date earlier than the rental's
+      rental_date, by up to 211 days. Not timezone skew.
+  SRC-002:
+    title: Zero-amount payments
+    detail: 24 payments have amount = 0.00.
+  SRC-003:
+    title: Credential hashes migrated
+    detail: staff.password holds SHA-1 hashes and is migrated (decision D09); needs data
+      owner sign-off on a real program.
+  SRC-004:
+    title: Store managers belong to other stores
+    detail: 499 of 500 stores have a manager_staff_id whose staff.store_id is a different
+      store. store.manager_staff_id has no declared FK in the source; it has no orphans.

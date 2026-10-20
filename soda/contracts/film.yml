@@ -1,0 +1,55 @@
+dataset: pagila_target/PAGILA_MIG/RAW/FILM
+
+checks:
+  - schema:
+      allow_extra_columns: false
+  - row_count:
+      threshold:
+        must_be_greater_than: 0
+
+columns:
+  - name: FILM_ID
+    checks:
+      - missing:
+      - duplicate:
+  - name: TITLE
+    checks:
+      - missing:
+  - name: DESCRIPTION
+  - name: RELEASE_YEAR
+    checks:
+      - invalid:
+          name: Release year within the source year domain
+          valid_min: 1901
+          valid_max: 2155
+  - name: LANGUAGE_ID
+    checks:
+      - missing:
+  - name: ORIGINAL_LANGUAGE_ID
+  - name: RENTAL_DURATION
+    checks:
+      - missing:
+      - invalid:
+          name: Rental duration is at least one day
+          valid_min: 1
+  - name: RENTAL_RATE
+    checks:
+      - missing:
+      - invalid:
+          valid_min: 0
+  - name: LENGTH
+  - name: REPLACEMENT_COST
+    checks:
+      - missing:
+      - invalid:
+          valid_min: 0
+  - name: RATING
+    checks:
+      - invalid:
+          name: Rating is a known MPAA rating
+          valid_values: ['G', 'PG', 'PG-13', 'R', 'NC-17']
+  - name: LAST_UPDATE
+    checks:
+      - missing:
+  - name: SPECIAL_FEATURES
+  - name: LENGTH_HOURS

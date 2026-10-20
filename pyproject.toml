@@ -1,0 +1,48 @@
+[project]
+name = "pagila-to-snowflake"
+version = "0.1.0"
+description = "Pagila Postgres to Snowflake migration with reconciliation and ETL testing"
+requires-python = ">=3.12"
+dependencies = [
+    "psycopg[binary]>=3.3",
+    "pyarrow>=26.0",
+    "pyyaml>=6.0",
+    # dbt-snowflake 1.12 requires < 5.0
+    "snowflake-connector-python>=4.8,<5",
+]
+
+[dependency-groups]
+dev = [
+    "dbt-core>=1.12,<1.13",
+    "dbt-snowflake>=1.12,<1.13",
+    "pytest>=9.1",
+    "ruff>=0.17",
+    "soda-postgres>=4.28",
+    "soda-snowflake>=4.28",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/migrate", "src/reconcile", "src/faults", "src/triage"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "source_db: needs the source Postgres (PG* env vars)",
+    "target_db: needs Snowflake (connection from ~/.snowflake/connections.toml)",
+]
+filterwarnings = [
+    # Raised inside Soda Core by an internal SQL AST class.
+    "ignore::DeprecationWarning:soda_core.common.sql_ast",
+    # Raised by the urllib3 copy vendored in snowflake-connector-python 4.x.
+    "ignore:X509.get_subject is deprecated:DeprecationWarning",
+]

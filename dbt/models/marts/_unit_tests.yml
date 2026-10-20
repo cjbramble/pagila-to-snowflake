@@ -1,0 +1,100 @@
+unit_tests:
+  # Film 1 rents for 3 days, so a rental at 2026-01-01 10:00 UTC is due 2026-01-04 10:00 UTC.
+  - name: late_return_rules
+    description: >
+      Boundaries of ETL-004 to ETL-007: early, exactly at due (on time), one second late,
+      exactly 24h late, 24h + 1s, a sub-second boundary (1 day + 0.1 s must be 2 days),
+      exactly 2x overdue (still daily), just over 2x (replacement), never returned, and a
+      non-UTC offset that is the same instant as due_at.
+    model: mart_rental_returns
+    config:
+      meta:
+        requirement: [ETL-004, ETL-005, ETL-006, ETL-007]
+    given:
+      - input: ref('stg_rental')
+        rows:
+          - {rental_id: 1,  inventory_id: 1, customer_id: 1, rental_date: "2026-01-01 10:00:00.000000 +0000", return_date: "2026-01-03 10:00:00.000000 +0000"}
+          - {rental_id: 2,  inventory_id: 1, customer_id: 1, rental_date: "2026-01-01 10:00:00.000000 +0000", return_date: "2026-01-04 10:00:00.000000 +0000"}
+          - {rental_id: 3,  inventory_id: 1, customer_id: 1, rental_date: "2026-01-01 10:00:00.000000 +0000", return_date: "2026-01-04 10:00:01.000000 +0000"}
+          - {rental_id: 4,  inventory_id: 1, customer_id: 1, rental_date: "2026-01-01 10:00:00.000000 +0000", return_date: "2026-01-05 10:00:00.000000 +0000"}
+          - {rental_id: 5,  inventory_id: 1, customer_id: 1, rental_date: "2026-01-01 10:00:00.000000 +0000", return_date: "2026-01-05 10:00:01.000000 +0000"}
+          - {rental_id: 6,  inventory_id: 1, customer_id: 1, rental_date: "2026-01-01 10:00:00.500000 +0000", return_date: "2026-01-05 10:00:00.600000 +0000"}
+          - {rental_id: 7,  inventory_id: 1, customer_id: 1, rental_date: "2026-01-01 10:00:00.000000 +0000", return_date: "2026-01-10 10:00:00.000000 +0000"}
+          - {rental_id: 8,  inventory_id: 1, customer_id: 1, rental_date: "2026-01-01 10:00:00.000000 +0000", return_date: "2026-01-10 10:00:01.000000 +0000"}
+          - {rental_id: 9,  inventory_id: 1, customer_id: 1, rental_date: "2026-01-01 10:00:00.000000 +0000", return_date: null}
+          - {rental_id: 10, inventory_id: 1, customer_id: 1, rental_date: "2026-01-01 11:00:00.000000 +0100", return_date: "2026-01-04 10:00:00.000000 +0000"}
+      - input: ref('stg_inventory')
+        rows:
+          - {inventory_id: 1, film_id: 1, store_id: 1}
+      - input: ref('stg_film')
+        rows:
+          - {film_id: 1, rental_duration: 3, replacement_cost: 19.99}
+    expect:
+      rows:
+        - {rental_id: 1,  due_at: "2026-01-04 10:00:00.000000 +0000", return_status: on_time,      days_late: 0,    fee_basis: none,         late_fee: 0.00}
+        - {rental_id: 2,  due_at: "2026-01-04 10:00:00.000000 +0000", return_status: on_time,      days_late: 0,    fee_basis: none,         late_fee: 0.00}
+        - {rental_id: 3,  due_at: "2026-01-04 10:00:00.000000 +0000", return_status: late,         days_late: 1,    fee_basis: daily,        late_fee: 1.00}
+        - {rental_id: 4,  due_at: "2026-01-04 10:00:00.000000 +0000", return_status: late,         days_late: 1,    fee_basis: daily,        late_fee: 1.00}
+        - {rental_id: 5,  due_at: "2026-01-04 10:00:00.000000 +0000", return_status: late,         days_late: 2,    fee_basis: daily,        late_fee: 2.00}
+        - {rental_id: 6,  due_at: "2026-01-04 10:00:00.500000 +0000", return_status: late,         days_late: 2,    fee_basis: daily,        late_fee: 2.00}
+        - {rental_id: 7,  due_at: "2026-01-04 10:00:00.000000 +0000", return_status: late,         days_late: 6,    fee_basis: daily,        late_fee: 6.00}
+        - {rental_id: 8,  due_at: "2026-01-04 10:00:00.000000 +0000", return_status: late,         days_late: 7,    fee_basis: replacement,  late_fee: 19.99}
+        - {rental_id: 9,  due_at: "2026-01-04 10:00:00.000000 +0000", return_status: not_returned, days_late: null, fee_basis: not_returned, late_fee: null}
+        - {rental_id: 10, due_at: "2026-01-04 10:00:00.000000 +0000", return_status: on_time,      days_late: 0,    fee_basis: none,         late_fee: 0.00}
+
+  - name: monthly_revenue_rules
+    description: >
+      ETL-001/002: store comes from the rental's inventory; months are UTC, so
+      2026-02-01 00:30 +01:00 is still January; zero-amount payments are counted.
+    model: mart_monthly_store_revenue
+    config:
+      meta:
+        requirement: [ETL-001, ETL-002]
+    given:
+      - input: ref('stg_payment')
+        rows:
+          - {payment_id: 1, rental_id: 1, amount: 5.00, payment_date: "2026-01-31 23:59:59.000000 +0000"}
+          - {payment_id: 2, rental_id: 2, amount: 0.00, payment_date: "2026-01-15 12:00:00.000000 +0000"}
+          - {payment_id: 3, rental_id: 1, amount: 2.00, payment_date: "2026-02-01 00:30:00.000000 +0100"}
+          - {payment_id: 4, rental_id: 3, amount: 4.00, payment_date: "2026-02-01 00:00:00.000000 +0000"}
+      - input: ref('stg_rental')
+        rows:
+          - {rental_id: 1, inventory_id: 1}
+          - {rental_id: 2, inventory_id: 1}
+          - {rental_id: 3, inventory_id: 2}
+      - input: ref('stg_inventory')
+        rows:
+          - {inventory_id: 1, store_id: 1}
+          - {inventory_id: 2, store_id: 2}
+    expect:
+      rows:
+        - {store_id: 1, revenue_month: "2026-01-01", payment_count: 3, revenue: 7.00}
+        - {store_id: 2, revenue_month: "2026-02-01", payment_count: 1, revenue: 4.00}
+
+  - name: customer_lifetime_value_rules
+    description: >
+      ETL-003: a rental with two payments doesn't double-count; a customer with rentals but
+      no payments still appears with 0.00 and null payment dates.
+    model: mart_customer_lifetime_value
+    config:
+      meta:
+        requirement: ETL-003
+    given:
+      - input: ref('stg_customer')
+        rows:
+          - {customer_id: 1, store_id: 1}
+          - {customer_id: 2, store_id: 1}
+      - input: ref('stg_payment')
+        rows:
+          - {payment_id: 1, customer_id: 1, rental_id: 10, amount: 3.00, payment_date: "2026-01-05 00:00:00.000000 +0000"}
+          - {payment_id: 2, customer_id: 1, rental_id: 10, amount: 1.00, payment_date: "2026-01-06 00:00:00.000000 +0000"}
+          - {payment_id: 3, customer_id: 1, rental_id: 11, amount: 2.00, payment_date: "2026-03-01 00:00:00.000000 +0000"}
+      - input: ref('stg_rental')
+        rows:
+          - {rental_id: 10, customer_id: 1}
+          - {rental_id: 11, customer_id: 1}
+          - {rental_id: 12, customer_id: 2}
+    expect:
+      rows:
+        - {customer_id: 1, lifetime_revenue: 6.00, payment_count: 3, rental_count: 2, first_payment_at: "2026-01-05 00:00:00.000000 +0000", last_payment_at: "2026-03-01 00:00:00.000000 +0000"}
+        - {customer_id: 2, lifetime_revenue: 0.00, payment_count: 0, rental_count: 1, first_payment_at: null, last_payment_at: null}

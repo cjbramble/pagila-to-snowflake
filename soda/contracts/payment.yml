@@ -1,0 +1,46 @@
+dataset: pagila_target/PAGILA_MIG/RAW/PAYMENT
+
+checks:
+  - schema:
+      allow_extra_columns: false
+  - row_count:
+      threshold:
+        must_be_greater_than: 0
+  - duplicate:
+      name: Primary key is unique
+      columns: [PAYMENT_DATE, PAYMENT_ID]
+
+# PAYMENT_ID and UUID are also checked as unique on their own, which is stricter than the
+# source's keys on purpose. Postgres requires unique keys on a partitioned table to include
+# the partition column, which is why the source PK is (payment_date, payment_id) and its uuid
+# index is (uuid, payment_date). Neither is meant to repeat: payment_id comes from a sequence
+# and uuid from uuidv7(). A repeat is a data-quality defect even where the source allows it.
+
+columns:
+  - name: PAYMENT_ID
+    checks:
+      - missing:
+      - duplicate:
+  - name: CUSTOMER_ID
+    checks:
+      - missing:
+  - name: STAFF_ID
+    checks:
+      - missing:
+  - name: RENTAL_ID
+    checks:
+      - missing:
+  - name: AMOUNT
+    checks:
+      - missing:
+      - invalid:
+          name: Amount is non-negative and fits NUMBER(5,2)
+          valid_min: 0
+          valid_max: 999.99
+  - name: PAYMENT_DATE
+    checks:
+      - missing:
+  - name: UUID
+    checks:
+      - missing:
+      - duplicate:
