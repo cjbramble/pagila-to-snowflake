@@ -15,4 +15,10 @@ def connect(connection_name: str | None = None) -> SnowflakeConnection:
         connection_name=name,
         # Short-lived scripts: always log out on close instead of probing for async queries.
         enable_server_session_keep_alive_auto_detection=False,
+        session_parameters={
+            # The account default is America/Los_Angeles; casting loaded timestamps to
+            # TIMESTAMP_TZ would stamp them with that offset instead of UTC.
+            "TIMEZONE": "UTC",
+            "QUERY_TAG": "pagila-migration",
+        },
     )
