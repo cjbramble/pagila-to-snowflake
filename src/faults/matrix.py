@@ -7,55 +7,24 @@ Usage: python -m faults.matrix [FAULT ...]
 
 import argparse
 import datetime as dt
-import subprocess
-import sys
-import tempfile
-import xml.etree.ElementTree as ET
 from pathlib import Path
-
-import yaml
 
 from faults.catalog import FAULTS
 from faults.inject import apply, fingerprint, restore
 from migrate.snowflake_conn import connect
+from reconcile.results import run_pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 REPORT = ROOT / "reports" / "fault_matrix.md"
-REQUIREMENTS = yaml.safe_load((ROOT / "requirements" / "requirements.yml").read_text())["migration"]
 LAYERS = ["schema", "volume", "process", "aggregate", "row", "integrity", "contract"]
 
 
 def run_suite() -> dict[str, set[str]]:
     """Run the reconciliation suite; returns {layer: failed test ids}."""
-    with tempfile.TemporaryDirectory() as tmp:
-        junit = Path(tmp) / "results.xml"
-        subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "pytest",
-                "tests/reconciliation",
-                "-q",
-                "-p",
-                "no:cacheprovider",
-                f"--junitxml={junit}",
-            ],
-            cwd=ROOT,
-            capture_output=True,
-            check=False,
-        )
-        if not junit.exists():
-            raise SystemExit("pytest produced no results; run the suite directly to see why")
-        root = ET.parse(junit).getroot()
-
     failed: dict[str, set[str]] = {layer: set() for layer in LAYERS}
-    for case in root.iter("testcase"):
-        if case.find("failure") is None and case.find("error") is None:
-            continue
-        test_id = f"{case.get('classname')}::{case.get('name')}"
-        for prop in case.iter("property"):
-            if prop.get("name") == "requirement":
-                failed[REQUIREMENTS[prop.get("value")]["layer"]].add(test_id)
+    for r in run_pytest(["tests/reconciliation"]):
+        if r.outcome in ("failed", "error") and r.layer in failed:
+            failed[r.layer].add(r.test_id)
     return failed
 
 
