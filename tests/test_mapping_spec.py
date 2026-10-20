@@ -6,6 +6,8 @@ import pytest
 from migrate.mapping import load_spec
 from migrate.profile_source import COLUMNS_SQL, RELATIONS_SQL
 
+pytestmark = pytest.mark.req("MIG-001")
+
 SPEC = load_spec()
 COLUMN_FIELDS = {
     "source_type",
