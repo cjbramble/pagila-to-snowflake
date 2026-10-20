@@ -16,7 +16,9 @@ from migrate.ddl import target_table
 from migrate.mapping import load_spec
 from migrate.snowflake_conn import connect
 
-BACKUP_SCHEMA = "PAGILA_MIG.QA"
+# Kept out of QA on purpose: the read-only triage role can see QA, and a pre-fault copy
+# would hand it the answer during blind diagnosis tests.
+BACKUP_SCHEMA = "PAGILA_MIG.FAULTS"
 
 
 def backup_table(table: str) -> str:
@@ -48,6 +50,7 @@ def backup_exists(sf: SnowflakeConnection, table: str) -> bool:
 def apply(sf: SnowflakeConnection, fault: Fault) -> None:
     """Back up the table, then run the fault's statements against RAW."""
     cur = sf.cursor()
+    cur.execute(f"CREATE SCHEMA IF NOT EXISTS {BACKUP_SCHEMA}")
     backup = backup_table(fault.table)
     if backup_exists(sf, fault.table):
         raise SystemExit(f"{backup} exists: restore {fault.table} before applying another fault")
@@ -59,6 +62,7 @@ def apply(sf: SnowflakeConnection, fault: Fault) -> None:
 
 def restore(sf: SnowflakeConnection, table: str) -> None:
     """Replace the RAW table with its backup clone, then drop the backup."""
+    sf.cursor().execute(f"CREATE SCHEMA IF NOT EXISTS {BACKUP_SCHEMA}")
     if not backup_exists(sf, table):
         raise SystemExit(f"no fault backup for {table}: nothing to restore")
     cur = sf.cursor()
