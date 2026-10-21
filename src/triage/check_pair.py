@@ -18,6 +18,9 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+import psycopg
+import snowflake.connector
+
 from triage.query import check_statement, query_postgres, query_snowflake
 
 MAX_DIFFS = 10
@@ -72,7 +75,11 @@ def run_pair(directory: Path, name: str) -> PairResult:
     try:
         _, source = query_postgres(statement_of(pg_sql), limit=None)
         _, target = query_snowflake(statement_of(sf_sql), limit=None)
-    except SystemExit as e:  # statement check or query failure from triage.query
+    except (
+        SystemExit,
+        psycopg.Error,
+        snowflake.connector.errors.Error,
+    ) as e:  # fail the pair, not the run
         return PairResult(name, requirement, False, f"could not run: {e}")
     detail = compare(source, target)
     return PairResult(name, requirement, not detail, detail or f"{len(source)} rows match")
