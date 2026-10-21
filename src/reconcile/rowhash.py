@@ -79,14 +79,21 @@ def row_hash_sql(dialect: str, table_ref: str, table_spec: dict[str, Any]) -> st
     """SELECT row_key, row_hash for every row; columns in spec order."""
     if dialect == "postgres":
         value, sep, md5, ident = postgres_value, "chr(31)", "md5", lambda c: f'"{c}"'
+        length = "length({})::text"
     else:
         value, sep, md5, ident = snowflake_value, "CHR(31)", "MD5", str.upper
+        length = "LENGTH({})::VARCHAR"
     columns = compared_columns(table_spec)
-    # NULL -> '0', value -> '1' || value: dialect-neutral and collision-free.
-    flagged = [
-        f"CASE WHEN {ident(c)} IS NULL THEN '0' ELSE '1' || {value(c, m)} END"
-        for c, m in columns.items()
-    ]
+    # NULL -> '0', value v -> '1' || length(v) || ':' || v. The NULL flag keeps NULL apart
+    # from every real value; the length prefix makes the encoding unambiguous even when a
+    # value contains the separator, so two different rows can't produce the same text.
+    flagged = []
+    for c, m in columns.items():
+        v = value(c, m)
+        flagged.append(
+            f"CASE WHEN {ident(c)} IS NULL THEN '0' "
+            f"ELSE '1' || {length.format(v)} || ':' || {v} END"
+        )
     key = f" || {sep} || ".join(value(c, columns[c]) for c in table_spec["primary_key"])
     return (
         f"SELECT {key} AS row_key,\n"
