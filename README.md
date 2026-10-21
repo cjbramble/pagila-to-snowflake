@@ -65,9 +65,9 @@ Rules are written in plain English in `requirements/requirements.yml`. Every dbt
 | dbt models, unit/data/singular tests | Claude Code | The human (business-rule decisions), model mutations, an independent Postgres re-implementation |
 | Fault injector and matrix | Claude Code | Predictions written down before each run, verified restores |
 | Requirements and business rules | Claude Code drafts | The human decides every judgement call (edge cases, attribution, rounding) |
-| Code review | Codex (a different model) on PRs #1 and #2 | The human accepted 8 findings and kept 1 design choice |
+| Code review | Codex (a different model) on PRs #1, #2, and #3 | 11 findings fixed; the human kept 1 design choice |
 
-Almost all code and SQL here is AI-generated. The project's point is proving it correct, and [AI_LOG.md](AI_LOG.md) records every defect found in AI output, with what caught it (42 so far).
+Almost all code and SQL here is AI-generated. The project's point is proving it correct, and [AI_LOG.md](AI_LOG.md) records every defect found in AI output, with what caught it (45 so far).
 
 ### Agents in the QA workflow
 

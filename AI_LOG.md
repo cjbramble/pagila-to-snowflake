@@ -50,6 +50,9 @@ What AI (Claude Code) generated in this project, what was wrong with it, and wha
 | 40 | 8 | `src/reconcile/signoff.py` first report | Printed "all made by the human" for the mapping decisions without counting them, and linked evidence as `../reports/x.md` from inside `reports/` | Reading the first generated report | Decisions are counted by status; links are relative to the report |
 | 41 | 4 | `tests/reconciliation/conftest.py` (Claude-written) | Its `pytest_collection_modifyitems` marked every collected item, not just that directory's, so all 164 tests were `target_db` and `-m "not target_db"` selected none. Latent until something filtered on the markers | Running the planned PR selection with Snowflake unreachable: 164 deselected | Marks only tests under its own directory; 29 run without Snowflake |
 | 42 | 8 | `.github/workflows/ci.yml` draft | Created the service container's superuser as `pagila`, but the Pagila dump assigns ownership to `postgres` (106 `OWNER TO postgres`), so the source load would fail in CI | Replica of the CI job: a fresh container loaded the same way | Superuser `postgres`, as in the local `.env`; replica loads 51,061 payments and passes 29/29 |
+| 43 | 8 | `src/reconcile/signoff.py` gate | Judged only requirement status, so a failing test with no requirement (e.g. in `tests/test_loader.py`) was listed in the report while the gate said GO and exited 0, the only pass/fail step in the full CI run | Codex review on PR #3 (P1) | New gate G5: every untraced pytest and dbt test passes; no waiver can cover them. Control: a planted failing untraced test gives G5 NOT MET, exit 1 |
+| 44 | 8 | `src/reconcile/signoff.py` G1 | A requirement whose only tests were skipped counted as "covered by a test that ran"; with a waiver it could pass G1 and G2 with nothing executed | Codex review on PR #3 | Skipped-only traces are uncovered; unit test with a waived, skipped-only requirement |
+| 45 | 8 | `.github/workflows/full-run.yml` | Uploaded `reports/migration_signoff.md` with `if: always()`, but that file is committed, so a run failing before the gate published the old GO report as its result | Codex review on PR #3 | The gate writes to the runner's temp dir and only that file is uploaded; a run that never reaches the gate uploads nothing |
 
 ## Phase 1: Source profiling
 
@@ -334,6 +337,7 @@ What AI (Claude Code) generated in this project, what was wrong with it, and wha
   - G2: every requirement passes or has an approved, unexpired waiver.
   - G3: every known source issue is accepted by a named human.
   - G4: the run is on committed code.
+  - G5: every test that traces to no requirement passes (added after the PR #3 review, defect 43).
 - **Human decisions live in `requirements/signoff.yml`.** Every disposition starts as `pending` with a recommendation, the same pattern as the mapping decisions, so the gate can't say GO before a human has looked.
 - **Cross-checks:** 29 dbt tests match `dbt ls`; 122,209 rows match `INFORMATION_SCHEMA.TABLES` and the source's own counts.
 - **Negative control (prediction written first):** with `drop_rows` applied, the gate went NO-GO with exactly MIG-003/004/005/006 and ETL-001/002/003 failing. The ETL failures are dbt data tests comparing the built marts with staging over RAW. Payment was restored to 51,061 rows.
