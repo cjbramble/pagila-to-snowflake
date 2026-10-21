@@ -1,6 +1,6 @@
 # Pagila → Snowflake migration QA
 
-Automated data-quality validation for a PostgreSQL 18 → Snowflake migration and the dbt transformations built on it. Every check traces to a written requirement, fault injection proves that the checks detect defects, and a sign-off gate turns the results into a go/no-go decision.
+Automated data-quality validation for a PostgreSQL 18 → Snowflake migration and the dbt transformations built on it. Every data-validation check traces to a written requirement (unit tests of the tooling itself are separate), fault injection proves that the checks detect defects, and a sign-off gate turns the results into a go/no-go decision.
 
 The source is [Pagila](https://github.com/devrimgunduz/pagila), the PostgreSQL port of the Sakila sample database: a DVD-rental business in 16 tables. Its schema includes the types that commonly break migrations: a partitioned table, enums, domains, arrays, `tsvector`, `bytea`, and pgvector embeddings.
 
