@@ -46,3 +46,6 @@ logs/
 .idea/
 .vscode/
 *.swp
+
+# Claude Code personal settings
+.claude/settings.local.json
