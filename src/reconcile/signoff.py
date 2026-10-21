@@ -137,10 +137,17 @@ def evidence_line(name: str) -> str:
 
 
 def gate(
-    statuses: dict[str, str], traces: dict[str, Trace], dispositions: dict, dirty: list[str]
+    statuses: dict[str, str],
+    traces: dict[str, Trace],
+    dispositions: dict,
+    dirty: list[str],
+    untraced: list[str],
 ) -> list[tuple[str, str, bool, str]]:
-    """(id, criterion, met, detail) for each gate criterion."""
-    uncovered = [r for r, t in traces.items() if not t.outcomes()]
+    """(id, criterion, met, detail) for each gate criterion.
+
+    untraced: tests that trace to no requirement and didn't pass; no waiver can cover them.
+    """
+    uncovered = [r for r, t in traces.items() if all(o == "skipped" for o in t.outcomes())]
     failing = [r for r, s in statuses.items() if s in ("FAIL", "INCOMPLETE")]
     undecided = sorted(
         s
@@ -175,6 +182,12 @@ def gate(
             "The run is on committed code, so the report traces to one commit",
             not dirty,
             f"{len(dirty)} uncommitted path(s): {', '.join(dirty[:5])}" if dirty else "clean tree",
+        ),
+        (
+            "G5",
+            "Every test that traces to no requirement passes",
+            not untraced,
+            f"{len(untraced)} not passing: {', '.join(untraced[:5])}" if untraced else "all pass",
         ),
     ]
 
@@ -357,7 +370,11 @@ def main() -> None:
         if s != "PASS" and (w := active_waiver(signoff.get("waivers") or [], r, today))
     }
     effective = {r: ("PASS" if r in waivers else s) for r, s in statuses.items()}
-    gates = gate(effective, traces, dispositions, dirty)
+    untraced = [r.test_id for r in pytest_results if not r.requirement and r.outcome != "passed"]
+    untraced += [
+        f"dbt {t['name']}" for t in dbt_results if not t["requirements"] and t["status"] != "passed"
+    ]
+    gates = gate(effective, traces, dispositions, dirty, untraced)
 
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(
