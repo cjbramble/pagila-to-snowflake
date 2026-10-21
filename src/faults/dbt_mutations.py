@@ -41,9 +41,18 @@ MUTATIONS = [
         "mart_rental_returns",
         "ETL-006",
         "days late rounded down instead of up",
-        "ceil(micros_after_due",
-        "floor(micros_after_due",
-        count=2,
+        "+ iff(mod(micros_after_due, 86400000000) > 0, 1, 0) as days_late_rounded_up",
+        "as days_late_rounded_up",
+    ),
+    ModelMutation(
+        "rr_ceil_decimal_division",
+        "mart_rental_returns",
+        "ETL-006",
+        "days late via ceil(micros / 86400000000): the quotient keeps 6 decimals, so up to "
+        "~43 ms past a day boundary isn't counted (the real bug dbt-test-author found)",
+        "(micros_after_due - mod(micros_after_due, 86400000000)) / 86400000000\n"
+        "            + iff(mod(micros_after_due, 86400000000) > 0, 1, 0)",
+        "ceil(micros_after_due / 86400000000)",
     ),
     ModelMutation(
         "rr_datediff_seconds",
@@ -76,7 +85,7 @@ MUTATIONS = [
         "ETL-007",
         "replacement cost added to the daily fee instead of replacing it",
         "when 'replacement' then replacement_cost",
-        "when 'replacement' then replacement_cost + ceil(micros_after_due / 86400000000)",
+        "when 'replacement' then replacement_cost + days_late_rounded_up",
     ),
     ModelMutation(
         "rr_never_returned_none",
