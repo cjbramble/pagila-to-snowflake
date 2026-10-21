@@ -250,3 +250,9 @@ What AI (Claude Code) generated in this project, what was wrong with it, and wha
   - Its unit tests were hand-checked and are all correct, including offset-crossing instants and deliberately repeated amounts.
   - Weaknesses: some recompute tests mirror the model in the same dialect, one consistency check is loose, and its report has a test-count error.
 - **Tooling finding:** a new agent file wasn't picked up until the session restarted, even though `.claude/agents/` already existed.
+- **Promotion (human decision):**
+  - Merged the agent's 5 unit tests into `dbt/models/marts/_unit_tests.yml`, plus 3 singular tests (`mart_rental_returns_outputs_utc`, `mart_rental_returns_matches_rules`, `mart_customer_lifetime_value_matches_source`).
+  - Skipped `mart_monthly_store_revenue_matches_payments`, which mirrors the model.
+  - Kept `matches_rules` because the human named it, even though it's same-dialect. Its header says so, and `tests/etl` is the cross-dialect check.
+  - **Correction:** my recommendation both promoted "the rental recompute" and skipped "the two mirrored checks", although the rental recompute was one of those two. I flagged the contradiction rather than resolving it silently.
+- **Merged suite: 17/17 mutations caught, unit tests alone 17, data tests alone 13.** `dbt build` passes (PASS=39). Skipping the revenue mirror costs 2 data-test detections (`rev_local_month`, `rev_staff_attribution`); the unit tests still catch both.
