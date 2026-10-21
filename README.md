@@ -18,7 +18,7 @@ The QA work is the point:
 | Fault detection | 12/12 injected migration faults caught ([reports/fault_matrix.md](reports/fault_matrix.md)) |
 | dbt test strength | 17/17 model mutations caught ([reports/dbt_mutation_matrix.md](reports/dbt_mutation_matrix.md)) |
 | Tests per full run | 166 pytest, 29 dbt (8 unit, 21 data) |
-| Defects found in AI output | 50, each with what caught it ([AI_LOG.md](AI_LOG.md)) |
+| Defects found in AI output | 53, each with what caught it ([AI_LOG.md](AI_LOG.md)) |
 | Snowflake cost to date | 4.6 compute credits on the project warehouse, about $14; 73 MB storage |
 
 ## Architecture
@@ -169,9 +169,9 @@ Rules are written in plain English in `requirements/requirements.yml`. Every dbt
 | dbt models, unit/data/singular tests | Claude Code | The human (business-rule decisions), model mutations, an independent Postgres re-implementation |
 | Fault injector and matrix | Claude Code | Predictions written down before each run, verified restores |
 | Requirements and business rules | Claude Code drafts | The human decides every judgement call (edge cases, attribution, rounding) |
-| Code review | Codex (a different model) on PRs #1 to #4 | 15 findings fixed; the human kept 1 design choice |
+| Code review | Codex (a different model) on PRs #1 to #5 | 18 findings fixed; the human kept 1 design choice |
 
-Almost all code and SQL here is AI-generated. The project's point is proving it correct, and [AI_LOG.md](AI_LOG.md) records every defect found in AI output, with what caught it (50 so far).
+Almost all code and SQL here is AI-generated. The project's point is proving it correct, and [AI_LOG.md](AI_LOG.md) records every defect found in AI output, with what caught it (53 so far).
 
 ### Agents in the QA workflow
 
