@@ -19,6 +19,15 @@ uv run --env-file .env python -m reconcile.signoff          # run everything, wr
 
 Setup (Snowflake account, key pair, `.env`) is covered in `sql/snowflake_setup.sql` and `.env.example`.
 
+## CI
+
+| Workflow | Runs on | What it does | Needs |
+|---|---|---|---|
+| `.github/workflows/ci.yml` | every PR, pushes to `main` | ruff, then `pytest -m "not target_db"` (29 tests: mapping spec vs a live Pagila source, loader, row-hash, harness and gate unit tests, dbt traceability) against a PostgreSQL 18 + pgvector service container | nothing |
+| `.github/workflows/full-run.yml` | manual (`workflow_dispatch`) | fresh source → `migrate.load` → `dbt build` → `reconcile.signoff`; fails on NO-GO and keeps the sign-off report as an artifact | repo secrets `SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_PRIVATE_KEY` |
+
+Tests that need Snowflake are marked `target_db`. The full run overwrites `RAW`, `STAGING`, and `MARTS` and uses a few minutes of XS warehouse time.
+
 ## Reconciliation layers
 
 Cheap to expensive. Each test is tagged with a requirement in `requirements/requirements.yml`, and pytest prints a per-requirement summary.
@@ -58,7 +67,7 @@ Rules are written in plain English in `requirements/requirements.yml`. Every dbt
 | Requirements and business rules | Claude Code drafts | The human decides every judgement call (edge cases, attribution, rounding) |
 | Code review | Codex (a different model) on PRs #1 and #2 | The human accepted 8 findings and kept 1 design choice |
 
-Almost all code and SQL here is AI-generated. The project's point is proving it correct, and [AI_LOG.md](AI_LOG.md) records every defect found in AI output, with what caught it (40 so far).
+Almost all code and SQL here is AI-generated. The project's point is proving it correct, and [AI_LOG.md](AI_LOG.md) records every defect found in AI output, with what caught it (42 so far).
 
 ### Agents in the QA workflow
 

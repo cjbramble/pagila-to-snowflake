@@ -48,6 +48,8 @@ What AI (Claude Code) generated in this project, what was wrong with it, and wha
 | 38 | 7A | `src/faults/dbt_mutations.py` `dbt()` | Ignored dbt's exit code and reused `target/run_results.json`, so a crashed pass read the previous pass's results or none, and the mutation scored as SURVIVED (or as killed by stale failures) | Codex review on PR #2 | Results are deleted before each pass; exit code other than 0/1 or no results is an invalid run, not scored; control: a Jinja-crash mutation reported invalid; full re-score still 17/17 |
 | 39 | 7B-7D | `.claude/agents/` author agents | Hard-coded `/Users/chet/...` in every tool command, so the agents fail on any other checkout or clone | Codex review on PR #2 | Relative `uv run --env-file .env`, run from the repository root, as `dq-triage` already did |
 | 40 | 8 | `src/reconcile/signoff.py` first report | Printed "all made by the human" for the mapping decisions without counting them, and linked evidence as `../reports/x.md` from inside `reports/` | Reading the first generated report | Decisions are counted by status; links are relative to the report |
+| 41 | 4 | `tests/reconciliation/conftest.py` (Claude-written) | Its `pytest_collection_modifyitems` marked every collected item, not just that directory's, so all 164 tests were `target_db` and `-m "not target_db"` selected none. Latent until something filtered on the markers | Running the planned PR selection with Snowflake unreachable: 164 deselected | Marks only tests under its own directory; 29 run without Snowflake |
+| 42 | 8 | `.github/workflows/ci.yml` draft | Created the service container's superuser as `pagila`, but the Pagila dump assigns ownership to `postgres` (106 `OWNER TO postgres`), so the source load would fail in CI | Replica of the CI job: a fresh container loaded the same way | Superuser `postgres`, as in the local `.env`; replica loads 51,061 payments and passes 29/29 |
 
 ## Phase 1: Source profiling
 
@@ -336,3 +338,16 @@ What AI (Claude Code) generated in this project, what was wrong with it, and wha
 - **Cross-checks:** 29 dbt tests match `dbt ls`; 122,209 rows match `INFORMATION_SCHEMA.TABLES` and the source's own counts.
 - **Negative control (prediction written first):** with `drop_rows` applied, the gate went NO-GO with exactly MIG-003/004/005/006 and ETL-001/002/003 failing. The ETL failures are dbt data tests comparing the built marts with staging over RAW. Payment was restored to 51,061 rows.
 - Unit tests for status, waivers, and the gate are in `tests/test_qa_tools.py`.
+
+## Phase 8: CI
+
+- **PR workflow** (`ci.yml`): ruff plus the 29 tests that need only Postgres, against the same `pgvector/pgvector:0.8.7-pg18-trixie` image as `docker-compose.yml`. Service containers start before checkout, so Pagila is loaded with the container's own `psql` (`ON_ERROR_STOP`, as the image's init does).
+- **Full run** (`full-run.yml`, manual): fresh source, load, `dbt build`, then the sign-off gate as the pass/fail step. The key comes from a secret and is written to the runner's temp dir, 0600, never inside the checkout; `SNOWFLAKE_HOME` points the connector there.
+- **Versions checked live, not recalled:** `actions/checkout` v7.0.1, `astral-sh/setup-uv` v10.2.0 (it publishes no floating major tag), `actions/upload-artifact` v7.0.1. All are pinned to commit SHAs; the newest releases under two weeks old were skipped.
+- **Verified before pushing, with only the CI environment** (empty HOME, so no `~/.snowflake`; only the variables the workflow sets):
+  - PR job: a fresh replica container, loaded the same way: 29 passed. An unloaded source fails 2 spec tests, so a broken load can't pass quietly.
+  - Full run: the credentials script, then load (16 tables), `dbt build` (38/38), sign-off **GO** with a clean tree.
+- **Found by the rehearsal:**
+  - Defect 41 and defect 42 (above).
+  - `.claude/settings.local.json` was kept out of git only by a global gitignore; the repo's `.gitignore` now covers it, so G4 doesn't depend on one machine.
+  - A draft comment claimed dbt needs every target's variables; `dbt parse` without the readonly key variable succeeded, so the placeholder was removed before commit.
