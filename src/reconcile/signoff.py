@@ -143,7 +143,10 @@ def gate(
     uncovered = [r for r, t in traces.items() if not t.outcomes()]
     failing = [r for r, s in statuses.items() if s in ("FAIL", "INCOMPLETE")]
     undecided = sorted(
-        s for s in KNOWN_ISSUES if dispositions.get(s, {}).get("status") not in ("accepted",)
+        s
+        for s in KNOWN_ISSUES
+        if dispositions.get(s, {}).get("status") != "accepted"
+        or not dispositions[s].get("decided_by")
     )
     return [
         (

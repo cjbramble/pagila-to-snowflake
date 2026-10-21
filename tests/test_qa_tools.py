@@ -111,7 +111,7 @@ def test_signoff_waiver_needs_approver_and_must_not_be_expired():
 def test_signoff_gate_is_no_go_on_any_unmet_criterion():
     traces = {"MIG-001": signoff.Trace(), "MIG-002": signoff.Trace()}
     traces["MIG-001"].pytest["t"].append("passed")
-    accepted = {s: {"status": "accepted"} for s in signoff.KNOWN_ISSUES}
+    accepted = {s: {"status": "accepted", "decided_by": "Data owner"} for s in signoff.KNOWN_ISSUES}
     gates = signoff.gate({"MIG-001": "PASS", "MIG-002": "FAIL"}, traces, accepted, [])
     met = {g: ok for g, _, ok, _ in gates}
     assert met == {"G1": False, "G2": False, "G3": True, "G4": True}
@@ -123,3 +123,7 @@ def test_signoff_gate_is_no_go_on_any_unmet_criterion():
 
     gates = signoff.gate({"MIG-001": "PASS", "MIG-002": "PASS"}, traces, accepted, [])
     assert all(ok for _, _, ok, _ in gates)
+
+    unnamed = accepted | {"SRC-002": {"status": "accepted", "decided_by": None}}
+    gates = signoff.gate({"MIG-001": "PASS", "MIG-002": "PASS"}, traces, unnamed, [])
+    assert [g for g, _, ok, _ in gates if not ok] == ["G3"]
