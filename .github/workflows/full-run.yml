@@ -1,0 +1,80 @@
+# The full migration against Snowflake, run by hand: load Pagila into a fresh source,
+# migrate it to PAGILA_MIG.RAW, build the dbt marts, then run the sign-off gate (every
+# pytest and dbt test). Fails on NO-GO; the sign-off report is kept as an artifact.
+#
+# Repo secrets: SNOWFLAKE_ACCOUNT, SNOWFLAKE_PRIVATE_KEY (PAGILA_SVC's unencrypted PEM key).
+# It overwrites RAW, STAGING, and MARTS and uses a few minutes of XS warehouse time.
+
+name: Full run (Snowflake)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: snowflake-full-run
+  cancel-in-progress: false
+
+jobs:
+  full-run:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    services:
+      postgres:
+        # Same image as docker-compose.yml; the Pagila dump assigns ownership to postgres.
+        image: pgvector/pgvector:0.8.7-pg18-trixie
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci-only-not-a-secret
+          POSTGRES_DB: pagila
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d pagila"
+          --health-interval 5s --health-timeout 3s --health-retries 30
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: ci-only-not-a-secret
+      PGDATABASE: pagila
+      SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+      SNOWFLAKE_CONNECTION: pagila
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - run: uv sync --locked
+
+      - name: Load Pagila into the source
+        run: |
+          for f in docker/pagila/pagila-schema.sql docker/pagila/pagila-data.sql; do
+            docker exec -i "${{ job.services.postgres.id }}" \
+              psql -v ON_ERROR_STOP=1 -q -U postgres -d pagila < "$f"
+          done
+
+      - name: Snowflake credentials
+        env:
+          SNOWFLAKE_PRIVATE_KEY: ${{ secrets.SNOWFLAKE_PRIVATE_KEY }}
+        run: sh .github/scripts/snowflake_credentials.sh
+
+      - name: Migrate to RAW
+        run: uv run python -m migrate.load
+
+      - name: Build the dbt marts
+        working-directory: dbt
+        run: uv run dbt build --profiles-dir .
+
+      - name: Sign-off gate
+        run: uv run python -m reconcile.signoff
+
+      - name: Keep the sign-off report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: migration-signoff
+          path: reports/migration_signoff.md
+          if-no-files-found: warn

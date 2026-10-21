@@ -1,0 +1,61 @@
+# Pull request checks that need no Snowflake credentials: lint, the mapping spec against a
+# live Pagila source, loader and harness unit tests, and dbt traceability (parse only).
+# Tests marked target_db need Snowflake and run in full-run.yml instead.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        # Same image as docker-compose.yml: Pagila master needs PostgreSQL 18 and pgvector.
+        image: pgvector/pgvector:0.8.7-pg18-trixie
+        env:
+          # The Pagila dump assigns ownership to postgres, as in the local .env.
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci-only-not-a-secret
+          POSTGRES_DB: pagila
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d pagila"
+          --health-interval 5s --health-timeout 3s --health-retries 30
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: ci-only-not-a-secret
+      PGDATABASE: pagila
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - run: uv sync --locked
+
+      - name: Lint
+        run: |
+          uv run ruff format --check .
+          uv run ruff check .
+
+      # Service containers start before checkout, so the init scripts can't be mounted the
+      # way docker-compose.yml does; load them with the container's own psql instead.
+      - name: Load Pagila into the source
+        run: |
+          for f in docker/pagila/pagila-schema.sql docker/pagila/pagila-data.sql; do
+            docker exec -i "${{ job.services.postgres.id }}" \
+              psql -v ON_ERROR_STOP=1 -q -U postgres -d pagila < "$f"
+          done
+
+      - name: Tests without Snowflake
+        run: uv run pytest -m "not target_db"
