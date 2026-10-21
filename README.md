@@ -44,6 +44,21 @@ Rules are written in plain English in `requirements/requirements.yml`. Every dbt
 
 ## AI in the workflow
 
+### Who authored what
+
+| Artifact | Written by | Validated by |
+|---|---|---|
+| Profiling SQL, mapping spec, loader, DDL generator | Claude Code (AI) | The human (all 9 mapping decisions), plus live probes in Snowflake |
+| Reconciliation layers, row-hash SQL, Soda contracts | Claude Code | Cross-checks with differently shaped queries, negative controls, the fault matrix |
+| dbt models, unit/data/singular tests | Claude Code | The human (business-rule decisions), model mutations, an independent Postgres re-implementation |
+| Fault injector and matrix | Claude Code | Predictions written down before each run, verified restores |
+| Requirements and business rules | Claude Code drafts | The human decides every judgement call (edge cases, attribution, rounding) |
+| Code review | Codex (a different model) on PR #1 | The human accepted 3 findings and kept 1 design choice |
+
+Almost all code and SQL here is AI-generated. The project's point is proving it correct, and [AI_LOG.md](AI_LOG.md) records every defect found in AI output, with what caught it (27 so far).
+
+### Agents and AI features in the pipeline
+
 | Piece | What it does | Evidence |
 |---|---|---|
 | `dq-triage` agent (`.claude/agents/`) | Given failing check output, queries both databases and reports the affected rows, pattern, root cause, fix, and the earliest catching check | Blind test on 4 random faults: 31/32, compliance 4/4 (`AI_LOG.md`) |
