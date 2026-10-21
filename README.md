@@ -40,18 +40,18 @@ flowchart LR
 
 ## Validation layers
 
-Each check traces to a requirement in [requirements/requirements.yml](requirements/requirements.yml).
+Each layer traces to requirements in [requirements/requirements.yml](requirements/requirements.yml), and the [sign-off report](reports/migration_signoff.md) shows the result for each one.
 
-| Layer | Requirement | Checks | Catches |
-|---|---|---|---|
-| Spec | MIG-001 | Mapping spec vs live source catalog | Unmapped columns, source type drift |
-| Schema | MIG-002 | Target columns, types, nullability, constraints vs spec | Wrong DDL, missing constraints |
-| Volume | MIG-003, MIG-006 | Row counts; load log | Dropped or duplicated rows, failed loads |
-| Aggregate | MIG-004 | Per column: nulls, distinct, min, max, sum, text length | Truncation, shifted values, type changes |
-| Row | MIG-005 | Normalized hash per primary key, source vs target | Any changed, missing, or extra row, by key |
-| Integrity | MIG-007, MIG-008 | Orphans across 23 relationships; domain rules | Broken references (Snowflake doesn't enforce FKs) |
-| Contract | MIG-009, ETL-008 | Soda contracts on key RAW tables and the marts | Schema, uniqueness, required and valid values |
-| Business rule | ETL-001 to ETL-007 | dbt unit and data tests; marts vs an independent Postgres implementation | Rule logic, boundary cases, join fan-out |
+| Layer | Checks | Catches |
+|---|---|---|
+| Spec | Mapping spec vs live source catalog | Unmapped columns, source type drift |
+| Schema | Target columns, types, nullability, constraints vs spec | Wrong DDL, missing constraints |
+| Volume | Row counts; load log | Dropped or duplicated rows, failed loads |
+| Aggregate | Per column: nulls, distinct, min, max, sum, text length | Truncation, shifted values, type changes |
+| Row | Normalized hash per primary key, source vs target | Any changed, missing, or extra row, by key |
+| Integrity | Orphans across 23 relationships; domain rules | Broken references (Snowflake doesn't enforce FKs) |
+| Contract | Soda contracts on key RAW tables and the marts | Schema, uniqueness, required and valid values |
+| Business rule | dbt unit and data tests; marts vs an independent Postgres implementation | Rule logic, boundary cases, join fan-out |
 
 Source-to-target checks are pytest (`tests/reconciliation/`), contracts are Soda Core (`soda/contracts/`), and business rules are dbt tests. Cross-dialect normalization and contract coverage: [docs/reconciliation.md](docs/reconciliation.md).
 
