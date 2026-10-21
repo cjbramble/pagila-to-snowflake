@@ -125,7 +125,7 @@ uv run --env-file .env python -m reconcile.signoff          # run everything, wr
 
 | Workflow | Runs on | What it does | Needs |
 |---|---|---|---|
-| `.github/workflows/ci.yml` | every PR, pushes to `main` | ruff, then `pytest -m "not target_db"` (29 tests: mapping spec vs a live Pagila source, loader, row-hash, harness and gate unit tests, dbt traceability) against a PostgreSQL 18 + pgvector service container | nothing |
+| `.github/workflows/ci.yml` | every PR, pushes to `main` | ruff, then `pytest -m "not target_db"` (31 tests: mapping spec vs a live Pagila source, loader, row-hash, harness and gate unit tests, dbt traceability) against a PostgreSQL 18 + pgvector service container | nothing |
 | `.github/workflows/full-run.yml` | manual (`workflow_dispatch`) | fresh source → `migrate.load` → `dbt build` → `reconcile.signoff`; fails on NO-GO and keeps the sign-off report as an artifact | repo secrets `SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_PRIVATE_KEY` |
 
 Tests that need Snowflake are marked `target_db`. The full run overwrites `RAW`, `STAGING`, and `MARTS`; the first one took 3 min 42 s end to end.
@@ -206,10 +206,11 @@ Setup for the read-only identities: `docker/init/03-triage-role.sh` (Postgres) a
 
 Failures name the table, column, or key that differs. This is the layer that signs off the migration.
 
-**Soda Core data contracts** (`soda/contracts/`) are declarative YAML checks on one Snowflake dataset at a time: the payment, rental, film, and customer tables in RAW, and the three marts. Each contract asserts:
-- schema shape and row count
-- required values and uniqueness
-- valid values and ranges
+**Soda Core data contracts** (`soda/contracts/`) are declarative YAML checks on one Snowflake dataset at a time: the payment, rental, film, and customer tables in RAW, and the three marts. They assert:
+- schema shape and row count (every contract)
+- required values and uniqueness (every contract)
+- valid values and ranges (every contract except `rental`)
+- one custom rule: on `mart_rental_returns`, a daily late fee is $1.00 per day late
 
 pytest runs every contract (MIG-009, ETL-008).
 

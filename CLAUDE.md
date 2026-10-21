@@ -15,7 +15,7 @@ docker compose up -d                                         # source Postgres (
 uv run --env-file .env python -m migrate.load [TABLE ...]    # full-refresh load to RAW, logs to QA.LOAD_LOG
 (cd dbt && uv run --env-file ../.env dbt build --profiles-dir .)   # dbt must run from dbt/ with --profiles-dir .
 uv run --env-file .env pytest                                # full suite (needs Postgres + Snowflake)
-uv run pytest -m "not target_db"                             # what CI runs: no Snowflake needed
+uv run --env-file .env pytest -m "not target_db"             # what CI runs (CI sets PG* itself): no Snowflake needed
 uv run --env-file .env pytest tests/reconciliation/test_04_rows.py -k payment   # single test
 uv run ruff format --check . && uv run ruff check .          # lint, as CI does
 uv run --env-file .env python -m reconcile.signoff           # run everything, write reports/migration_signoff.md; exit 1 on NO-GO
@@ -29,7 +29,7 @@ Harnesses (slow, write to Snowflake):
 ## Architecture
 
 - **The mapping spec drives everything.** `mapping/type_mapping.yml` is the column-by-column Postgres → Snowflake spec (types, nullability, virtual columns, CHECKs, exclusions, decision IDs). `migrate.ddl` generates DDL from it, `migrate.load` loads from it, and the schema, aggregate, and row-hash layers compare against it. Changing a column means changing the spec first.
-- **Requirements are the trace key.** `requirements/requirements.yml` defines `MIG-*`, `ETL-*`, and known source issues `SRC-*`. Every pytest test carries `@pytest.mark.req("...")`; collection fails on an unknown ID (`tests/conftest.py`), and pytest prints a per-requirement summary. Every dbt test declares `config.meta.requirement`; `tests/test_etl_traceability.py` fails if an ETL rule has no dbt test. Each requirement's `layer` field is how the fault matrix groups results.
+- **Requirements are the trace key.** `requirements/requirements.yml` defines `MIG-*`, `ETL-*`, and known source issues `SRC-*`. Tests that verify a requirement (reconciliation, ETL, mapping spec) carry `@pytest.mark.req("...")`; collection fails on an unknown ID (`tests/conftest.py`), and pytest prints a per-requirement summary. Unit and harness tests (`test_loader`, `test_rowhash`, `test_summarize`, `test_qa_tools`, `test_etl_traceability`) carry none, and the sign-off gate covers them through G5; don't add a requirement just to mark a test. Every dbt test declares `config.meta.requirement`; `tests/test_etl_traceability.py` fails if an ETL rule has no dbt test. Each requirement's `layer` field is how the fault matrix groups results.
 - **Reconciliation layers** live in `tests/reconciliation/test_0N_*.py` (schema → volume → aggregates → rows → integrity → Soda), backed by `src/reconcile/`. A conftest there marks all of them `source_db` + `target_db`.
 - **Row hashing** (`src/reconcile/rowhash.py`) generalizes the hand-written pair in `sql/reconciliation/`; a test proves they match. Its normalization rules (length-prefixed values, `0` for NULL, UTC microseconds, 9-decimal vectors) are explained in the README.
 - **Sign-off gate** (`reconcile.signoff`) runs pytest + `dbt test` once, reads the latest `QA.LOAD_LOG` per table, and applies the human decisions in `requirements/signoff.yml` (dispositions per `SRC-*`, waivers). Any `pending` disposition means NO-GO.
