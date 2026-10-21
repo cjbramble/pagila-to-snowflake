@@ -84,7 +84,7 @@ Takeaway: use Soda contracts as the target's ongoing data-quality guardrail, own
 
 Hand-written for `payment` in `sql/reconciliation/` (both dialects), generalized in `src/reconcile/rowhash.py`. A test proves the generator matches the hand-written pair row for row.
 
-- NULL is encoded as `0` and a value as `1` + value. A `\N` token doesn't work, because Snowflake reads `'\N'` as `N`.
+- NULL is encoded as `0` and a value as `1` + its length + `:` + the value. A `\N` token doesn't work, because Snowflake reads `'\N'` as `N`. The length prefix makes the encoding unambiguous: a separator alone lets two different rows produce the same text.
 - Timestamps are UTC with microseconds. Numerics use fixed scale. UUIDs are lowercase.
 - Strings are compared untrimmed. Pagila has no `CHAR(n)` columns, so trimming could only hide defects.
 - Vectors are rounded to 9 decimals per element: no false mismatches on the 1,000 real embeddings, and a 1e-7 drift is caught.

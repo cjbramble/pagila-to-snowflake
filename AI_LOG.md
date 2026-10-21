@@ -40,6 +40,7 @@ What AI (Claude Code) generated in this project, what was wrong with it, and wha
 | 30 | 6 | `mart_rental_returns.sql` (Claude-written) | `ceil(micros_after_due / 86400000000)` loses precision: Snowflake keeps 6 decimal places in that quotient, so a return up to ~43 ms past a day boundary isn't counted (1 µs late gave 0 days; 1 day + 43 ms gave 1). Latent: 0 real rentals affected, so the unit tests, data tests, the Postgres re-implementation, and all 16 mutations missed it | `dbt-test-author` agent's 1 µs-late fixture row, in a blind run | Exact integer arithmetic (`(m - mod(m, D)) / D + iff(mod(m, D) > 0, 1, 0)`); added as mutation 17 `rr_ceil_decimal_division` |
 | 31 | 7B | `dbt-test-author` proposals | Two "independent" recompute tests mirror the model in the same dialect (same joins, `CONVERT_TIMEZONE`/`DATE_TRUNC`; `TIMESTAMPADD` is a synonym of `DATEADD`), so a misread rule would be copied rather than caught. A replacement-fee consistency check is loose (`late_fee > 0`; the exact check exists in another test). Its report said 8 singular tests; it wrote 9 | Claude review | Logged; considered when deciding what to promote |
 | 32 | 7C | `migration-check-author` proposals | `COALESCE(MIN(x), '')` makes an all-NULL column look like an empty string in min/max (the adjacent `null_count` still tells them apart); single-row count files have no `ORDER BY` (harmless); never ran a negative control (it said so) | Claude review; fault matrix | Logged; low severity |
+| 33 | 4 | `src/reconcile/rowhash.py` and the hand-written payment pair (Claude-written) | Commented as "collision-free", but it joined `'1' || value` with only a separator: two different rows, (`'a'`, `'b␟1c'`) and (`'a␟1b'`, `'c'`), hashed identically (`c9480605…`) on both engines. Latent: no Pagila value contains `chr(31)` | `migration-check-author`'s length-prefixed design, then a counterexample run on both engines | Values encode as `1 || length || ':' || value`; generator and hand-written pair updated; checklist rule added |
 
 ## Phase 1: Source profiling
 
@@ -280,3 +281,11 @@ What AI (Claude Code) generated in this project, what was wrong with it, and wha
   - Its aggregates add a sum-of-text-length metric. That caught `trailing_whitespace` and `truncate_strings` at the aggregate layer: 9/10 in-scope faults at that layer against my 8/10. `swap_fk_values` stays row-hash-only for both, by design.
 - **Compliance: pass.** Inputs unchanged; it wrote only under `proposals/`; no reads outside the workspace, no forbidden commands, no write SQL.
 - **Review (defect 32):** minor only.
+- **Promotion (human decision): both improvements ported into `src/reconcile`.**
+  - `length_sum` metric for text columns in `aggregates.py`; UUIDs get their own kind because they're fixed length.
+  - Length-prefixed encoding in `rowhash.py` and the hand-written payment pair (fixes defect 33).
+  - Verified:
+    - Old vs new encoding on a counterexample, on both engines.
+    - The generator still matches the hand-written pair row for row.
+    - Full suite: 157 passed.
+  - **Fault matrix: still 12/12, as predicted, and the aggregate layer now also catches `trailing_whitespace`**, which only the row hash caught before.

@@ -7,7 +7,7 @@ Rules learned in this project, each tied to where it happened (`D#` = defect num
 - **DATEDIFF counts unit boundaries crossed, not elapsed time.** `DATEDIFF('second', a, b)` gives 86400 for 1 day + 0.8 s. Measure elapsed time in the stored precision (`microsecond`), or compare timestamps directly. (P6, D19)
 - **Text min/max needs `COLLATE "C"` in Postgres.** Postgres sorts by the database locale (`en_US.utf8`); Snowflake compares code points. Without it, 3 Pagila text columns give false mismatches. (P4)
 - **Enums order by declaration, not alphabetically,** and can't take a collation. Compare an enum as `::text COLLATE "C"`. The same goes for any non-text source that lands as text, such as `uuid`. (D11)
-- **Backslashes are escapes in Snowflake string literals.** `'\N'` is the one-character string `N`. Never use backslash null tokens; encode NULL as `0` and a value as `1 || value`. (P4)
+- **Backslashes are escapes in Snowflake string literals.** `'\N'` is the one-character string `N`. Never use backslash null tokens; encode NULL as `0` and a value as `1 || length(value) || ':' || value`. (P4)
 - **`UUID` output is lowercase in Snowflake.** Lowercase on both sides before hashing or comparing. (P2)
 - **Snowflake rewrites virtual-column expressions** (`60.0` became `SCALED_ROUND_INT_DIVIDE(LENGTH, 60)`). Don't compare expression text; compare the computed values. (P4)
 - **`COPY INTO` is rejected on tables with CHECK constraints.** Load into an unconstrained landing table and `INSERT` from it. (D7)
@@ -33,6 +33,8 @@ Rules learned in this project, each tied to where it happened (`D#` = defect num
 - **Pick vector or float tolerance from evidence.** 6 decimals hid a 1e-7 drift; 9 decimals had zero false mismatches on real data. (D14)
 - **Aggregate fingerprints are a first pass, not proof.** Counts, sums and checksums miss offsetting errors and swaps. Pair them with a row-level comparison, and make every dimension (such as `store_id`) part of the checksum. (D20, D22)
 - **Strings are compared untrimmed.** Pagila has no `CHAR(n)`, so trimming can only hide defects. (P4)
+- **Length-prefix values when concatenating for a hash.** A separator alone can collide: (`'a'`, `'b␟1c'`) and (`'a␟1b'`, `'c'`) encode identically. Never rely on a separator not appearing in the data. (D33)
+- **Add the sum of text lengths to text aggregates.** It catches truncation and a single added or removed character even when distinct counts and min/max don't move. (P7C)
 - **A requirement's acceptance criteria are the checklist.** Implement every one, or say explicitly which you skipped and why. (D21)
 
 ## Test design
