@@ -8,7 +8,7 @@ The QA work is the point:
 - requirement-traced reconciliation from source to target
 - data contracts and business-rule tests
 - fault injection that proves the checks catch defects
-- a go/no-go sign-off gate run in CI
+- a go/no-go sign-off gate, run on demand as a GitHub Actions workflow
 
 ## At a glance
 
@@ -18,7 +18,7 @@ The QA work is the point:
 | Fault detection | 12/12 injected migration faults caught ([reports/fault_matrix.md](reports/fault_matrix.md)) |
 | dbt test strength | 17/17 model mutations caught ([reports/dbt_mutation_matrix.md](reports/dbt_mutation_matrix.md)) |
 | Tests per full run | 166 pytest, 29 dbt (8 unit, 21 data) |
-| Defects found in AI output | 53, each with what caught it ([AI_LOG.md](AI_LOG.md)) |
+| Defects found in AI output | 55, each with what caught it ([AI_LOG.md](AI_LOG.md)) |
 | Snowflake cost to date | 4.6 compute credits on the project warehouse, about $14; 73 MB storage |
 
 ## Architecture
@@ -160,18 +160,12 @@ Rules are written in plain English in `requirements/requirements.yml`. Every dbt
 
 ## AI in the workflow
 
-### Who authored what
+AI generated most of the code, SQL, and tests here; none of it was accepted on trust.
 
-| Artifact | Written by | Validated by |
-|---|---|---|
-| Profiling SQL, mapping spec, loader, DDL generator | Claude Code (AI) | The human (all 9 mapping decisions), plus live probes in Snowflake |
-| Reconciliation layers, row-hash SQL, Soda contracts | Claude Code | Cross-checks with differently shaped queries, negative controls, the fault matrix |
-| dbt models, unit/data/singular tests | Claude Code | The human (business-rule decisions), model mutations, an independent Postgres re-implementation |
-| Fault injector and matrix | Claude Code | Predictions written down before each run, verified restores |
-| Requirements and business rules | Claude Code drafts | The human decides every judgement call (edge cases, attribution, rounding) |
-| Code review | Codex (a different model) on PRs #1 to #5 | 18 findings fixed; the human kept 1 design choice |
-
-Almost all code and SQL here is AI-generated. The project's point is proving it correct, and [AI_LOG.md](AI_LOG.md) records every defect found in AI output, with what caught it (53 so far).
+- **Every generated artifact is proven:** cross-checks with differently shaped queries, negative controls, fault injection and model mutations, and live probes of Snowflake instead of recalled API behavior.
+- **A human makes every judgement call:** the 9 mapping decisions, business-rule edge cases, known-issue dispositions, and the sign-off gate criteria.
+- **A second model reviews every PR.** Codex left 21 findings across PRs #1 to #5: 20 fixed, and 1 design choice the human kept.
+- **Every defect is logged.** [AI_LOG.md](AI_LOG.md) records each defect found in AI output and what caught it (55 so far).
 
 ### Agents in the QA workflow
 
