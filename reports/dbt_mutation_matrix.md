@@ -1,14 +1,15 @@
-# dbt mutation matrix: existing tests (human-reviewed, Claude-written)
+# dbt mutation matrix: existing tests (Claude-written, human-reviewed)
 
-Generated 2026-10-20 23:44 UTC by `python -m faults.dbt_mutations` on `/Users/chet/dev-projects/snowflake-data-project/dbt`.
+Generated 2026-10-21 00:25 UTC by `python -m faults.dbt_mutations` on `/Users/chet/dev-projects/snowflake-data-project/dbt`.
 
-**Kill score: 16/16** mutations caught by at least one test (unit tests alone: 15, data tests alone: 9).
+**Kill score: 16/17** mutations caught by at least one test (unit tests alone: 15, data tests alone: 9).
 
 Cells list the failing tests; `·` means none noticed.
 
 | Mutation | Model | Rule | Unit tests | Data tests | Verdict |
 |---|---|---|---|---|---|
 | `rr_floor_days` | mart_rental_returns | ETL-006 | `late_return_rules` | `assert_late_fee_matches_basis` | killed |
+| `rr_ceil_decimal_division` | mart_rental_returns | ETL-006 | · | · | **SURVIVED** |
 | `rr_datediff_seconds` | mart_rental_returns | ETL-006 | `late_return_rules` | · | killed |
 | `rr_due_exact_is_late` | mart_rental_returns | ETL-005 | `late_return_rules` | `assert_late_fee_matches_basis` | killed |
 | `rr_replacement_at_2x` | mart_rental_returns | ETL-007 | `late_return_rules` | `assert_late_fee_matches_basis` | killed |
@@ -28,6 +29,7 @@ Cells list the failing tests; `·` means none noticed.
 ## Mutations
 
 - `rr_floor_days`: days late rounded down instead of up
+- `rr_ceil_decimal_division`: days late via ceil(micros / 86400000000): the quotient keeps 6 decimals, so up to ~43 ms past a day boundary isn't counted (the real bug dbt-test-author found)
 - `rr_datediff_seconds`: lateness measured with DATEDIFF(second), which counts boundaries
 - `rr_due_exact_is_late`: returned exactly at due_at counts as late
 - `rr_replacement_at_2x`: exactly 2x overdue already charged replacement
