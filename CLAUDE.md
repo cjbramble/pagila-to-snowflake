@@ -22,9 +22,9 @@ uv run --env-file .env python -m reconcile.signoff           # run everything, w
 ```
 
 Harnesses (slow, write to Snowflake):
-- `python -m faults.matrix [FAULT ...]` injects each fault into RAW, runs `tests/reconciliation`, restores from a zero-copy clone in `PAGILA_MIG.FAULTS`, and writes `reports/fault_matrix.md` (~8 min).
-- `python -m faults.dbt_mutations` mutates dbt models and builds them with the `mutation` target into `MUT_*` schemas.
-- `python -m faults.pair_matrix DIR` scores a folder of paired `.pg.sql`/`.sf.sql` checks against the faults.
+- `uv run --env-file .env python -m faults.matrix [FAULT ...]` injects each fault into RAW, runs `tests/reconciliation`, restores from a zero-copy clone in `PAGILA_MIG.FAULTS`, and writes `reports/fault_matrix.md` (~8 min).
+- `uv run --env-file .env python -m faults.dbt_mutations` mutates dbt models and builds them with the `mutation` target into `MUT_*` schemas.
+- `uv run --env-file .env python -m faults.pair_matrix DIR` scores a folder of paired `.pg.sql`/`.sf.sql` checks against the faults.
 
 ## Architecture
 
