@@ -35,6 +35,8 @@ What AI (Claude Code) generated in this project, what was wrong with it, and wha
 | 25 | 3 | `src/migrate/load.py` `migrate_table` | Caught only database errors; an Arrow or file error while building the Parquet extract crashed the run without a FAILED `LOAD_LOG` entry, leaving the previous SUCCESS as the latest | Codex review on PR #1 | Arrow and OS errors go through the same logging path; 2 unit tests, which fail with the old handler |
 | 26 | 7 | `src/reconcile/record.py` | Recorded only `tests/reconciliation` and `tests/etl`, so MIG-001 (in `tests/test_mapping_spec.py`) never reached `QA.RECON_RESULTS`; a failing run could be stored and summarized as clean | Codex review on PR #1 | Records the whole suite; verified 17/17 requirements covered |
 | 27 | 7 | `docker/init/03-triage-role.sh` | Hard-coded the `dq_triage` role while the query tool logs in as `$TRIAGE_PGUSER`, so the documented setting couldn't actually be changed | Codex review on PR #1 | Uses `TRIAGE_PGUSER`, quoted as an identifier; tested with a name that needs quoting |
+| 28 | 6→7A | `monthly_revenue_rules` unit test | Fixture payment amounts (5.00, 0.00, 2.00) are all distinct, so a `SUM(DISTINCT amount)` bug passes the unit test; only the data test `assert_revenue_attributes_every_payment` caught it | dbt mutation baseline (`rev_sum_distinct`); predicted before the run | Logged; left as-is so the baseline the agents are compared against stays fixed |
+| 29 | 7A | `src/faults/dbt_mutations.py` report (first run) | Took the last segment of dbt unique IDs, which for generic tests is a hash (`f5f1497056`) | Reading the generated report | `node_name()` takes the test name before the hash; report regenerated |
 
 ## Phase 1: Source profiling
 
@@ -207,3 +209,15 @@ What AI (Claude Code) generated in this project, what was wrong with it, and wha
   - The checks stay. Postgres forced the source keys to include the partition column, and both columns are generated unique, so a repeat is a quality defect.
   - The contract now explains why.
 - **Found while fixing 27:** a Docker single-file bind mount kept serving a stale, truncated copy of the edited init script until the container was recreated. A comment in `docker-compose.yml` now warns about this.
+
+## Phase 7A: Shared foundations for the agents
+
+- **Built:**
+  - `docs/dq_checklist.md`: rules from defects 1-27 and the phase findings, which every agent must follow.
+  - dbt targets `readonly` (PAGILA_TRIAGE_SVC: runs all 22 dbt tests, can't build) and `mutation` (builds only into `MUT_*` schemas; the real marts' `last_altered` didn't change).
+  - `src/faults/dbt_mutations.py`: 16 business-rule mutations across the 3 marts, with unit and data tests scored separately.
+- **Baseline for the existing dbt tests: 16/16 killed.** Unit tests alone caught 15, data tests alone 9 (`reports/dbt_mutation_matrix.md`).
+- **Predictions written before the run:**
+  - Right: all 16 killed, and the unit tests miss `rev_sum_distinct` (defect 28).
+  - Wrong on 2: I predicted no data test catches `clv_no_coalesce` or `clv_inner_join`, assuming every customer has a payment. 2 customers don't, so the data tests caught both. That was an unverified assumption about the data, the same failure mode as defect 18.
+- **What this means for the agents:** only the unit tests catch 7 mutations, because those mutations don't change any total or grain on today's data. An author agent that writes only data tests can score at most 9/16.
