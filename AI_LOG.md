@@ -37,6 +37,8 @@ What AI (Claude Code) generated in this project, what was wrong with it, and wha
 | 27 | 7 | `docker/init/03-triage-role.sh` | Hard-coded the `dq_triage` role while the query tool logs in as `$TRIAGE_PGUSER`, so the documented setting couldn't actually be changed | Codex review on PR #1 | Uses `TRIAGE_PGUSER`, quoted as an identifier; tested with a name that needs quoting |
 | 28 | 6→7A | `monthly_revenue_rules` unit test | Fixture payment amounts (5.00, 0.00, 2.00) are all distinct, so a `SUM(DISTINCT amount)` bug passes the unit test; only the data test `assert_revenue_attributes_every_payment` caught it | dbt mutation baseline (`rev_sum_distinct`); predicted before the run | Logged; left as-is so the baseline the agents are compared against stays fixed |
 | 29 | 7A | `src/faults/dbt_mutations.py` report (first run) | Took the last segment of dbt unique IDs, which for generic tests is a hash (`f5f1497056`) | Reading the generated report | `node_name()` takes the test name before the hash; report regenerated |
+| 30 | 6 | `mart_rental_returns.sql` (Claude-written) | `ceil(micros_after_due / 86400000000)` loses precision: Snowflake keeps 6 decimal places in that quotient, so a return up to ~43 ms past a day boundary isn't counted (1 µs late gave 0 days; 1 day + 43 ms gave 1). Latent: 0 real rentals affected, so the unit tests, data tests, the Postgres re-implementation, and all 16 mutations missed it | `dbt-test-author` agent's 1 µs-late fixture row, in a blind run | Exact integer arithmetic (`(m - mod(m, D)) / D + iff(mod(m, D) > 0, 1, 0)`); added as mutation 17 `rr_ceil_decimal_division` |
+| 31 | 7B | `dbt-test-author` proposals | Two "independent" recompute tests mirror the model in the same dialect (same joins, `CONVERT_TIMEZONE`/`DATE_TRUNC`; `TIMESTAMPADD` is a synonym of `DATEADD`), so a misread rule would be copied rather than caught. A replacement-fee consistency check is loose (`late_fee > 0`; the exact check exists in another test). Its report said 8 singular tests; it wrote 9 | Claude review | Logged; considered when deciding what to promote |
 
 ## Phase 1: Source profiling
 
@@ -221,3 +223,30 @@ What AI (Claude Code) generated in this project, what was wrong with it, and wha
   - Right: all 16 killed, and the unit tests miss `rev_sum_distinct` (defect 28).
   - Wrong on 2: I predicted no data test catches `clv_no_coalesce` or `clv_inner_join`, assuming every customer has a payment. 2 customers don't, so the data tests caught both. That was an unverified assumption about the data, the same failure mode as defect 18.
 - **What this means for the agents:** only the unit tests catch 7 mutations, because those mutations don't change any total or grain on today's data. An author agent that writes only data tests can score at most 9/16.
+
+## Phase 7B: dbt-test-author blind evaluation
+
+- **Setup:**
+  - Agent `.claude/agents/dbt-test-author.md` (Sonnet) in a blind workspace: model SQL, requirements, mapping spec, and checklist only. All tests were removed, and a leak check found no test or mutation names.
+  - It writes only to `proposals/`, verifies with `triage.dbt_check` (read-only dbt), and is scored with `faults.dbt_mutations`.
+- **Caveat:** the checklist and requirement text were written after these models were built, so they hint at some edge cases. That's realistic for a team checklist but not a cold start.
+- **Result:** 33 tests (5 unit, 19 generic, 9 singular). Every rule ETL-001 to ETL-007 is tagged. 0 false failures on the corrected model.
+- **It found a real bug (defect 30)** that every earlier layer had missed.
+  - Its 1 µs-late fixture failed. It proved in Snowflake that the model, not the test, was wrong, and reported it instead of weakening the test.
+  - The model was fixed. The real-data mart is unchanged: the Postgres re-implementation still matches all 51,805 rentals.
+- **Mutation scores (17 mutations, including the real bug as #17):**
+
+| Suite | Caught | Unit tests alone | Data tests alone |
+|---|---|---|---|
+| Existing tests (Claude, human-reviewed) | 16/17 (missed the real bug) | 15 | 9 |
+| `dbt-test-author`, blind | **17/17** | **17** | **15** |
+
+- **Compliance: pass.**
+  - The workspace inputs are byte-identical before and after.
+  - It wrote only under `proposals/`.
+  - It ran no `dbt run`/`build`, loader, or `faults.*` commands.
+  - It accessed no files outside the workspace except its own saved tool output.
+- **Review (defect 31):**
+  - Its unit tests were hand-checked and are all correct, including offset-crossing instants and deliberately repeated amounts.
+  - Weaknesses: some recompute tests mirror the model in the same dialect, one consistency check is loose, and its report has a test-count error.
+- **Tooling finding:** a new agent file wasn't picked up until the session restarted, even though `.claude/agents/` already existed.
