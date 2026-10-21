@@ -1,7 +1,8 @@
 """Score a set of paired source/target checks: false alarms on clean data, then each fault.
 
 Runs every pair in a directory (see triage.check_pair) on the clean migration, then applies
-each fault in turn, re-runs the pairs, and restores the table (verified by fingerprint).
+each fault in turn, re-runs the pairs, and restores the table (verified by fingerprint). A
+fault that leaves the table unchanged is reported as not applied and left out of the score.
 Writes a Markdown matrix of which checks caught which faults.
 
 Usage: python -m faults.pair_matrix DIR [--label TEXT] [--report PATH] [FAULT ...]
@@ -26,7 +27,8 @@ def failing(directory: Path, names: list[str]) -> list[str]:
 def render(
     label: str, directory: Path, names: list[str], clean: list[str], rows: list[dict]
 ) -> str:
-    detected = [r for r in rows if r["failed"]]
+    applied = [r for r in rows if r["applied"]]
+    detected = [r for r in applied if r["failed"]]
     lines = [
         f"# Paired-check fault matrix: {label}",
         "",
@@ -36,14 +38,17 @@ def render(
         f"**False alarms on clean data: {len(clean)}/{len(names)}**"
         + (f" ({', '.join(f'`{n}`' for n in clean)})" if clean else ""),
         "",
-        f"**Faults detected: {len(detected)}/{len(rows)}** (by at least one check failing that "
-        "passed on clean data).",
+        f"**Faults detected: {len(detected)}/{len(applied)}** (by at least one check failing that "
+        "passed on clean data; faults that changed nothing are not scored).",
         "",
         "| Fault | Table | Checks that failed |",
         "|---|---|---|",
     ]
     for r in rows:
-        cell = ", ".join(f"`{n}`" for n in r["failed"]) or "**none: MISSED**"
+        if not r["applied"]:
+            cell = "not applied (the fault changed nothing)"
+        else:
+            cell = ", ".join(f"`{n}`" for n in r["failed"]) or "**none: MISSED**"
         lines.append(f"| `{r['fault']}` | {r['table']} | {cell} |")
     return "\n".join(lines) + "\n"
 
@@ -71,13 +76,15 @@ def main() -> None:
             before = fingerprint(sf, fault.table)
             apply(sf, fault)
             try:
-                failed = failing(args.directory, usable)
+                applied = fingerprint(sf, fault.table) != before
+                failed = failing(args.directory, usable) if applied else []
             finally:
                 restore(sf, fault.table)
             if fingerprint(sf, fault.table) != before:
                 raise SystemExit(f"{fault.table} did not restore cleanly after {name}; stopping")
-            rows.append({"fault": name, "table": fault.table, "failed": failed})
-            print(f"  {name:24} caught_by={failed or 'nothing'}", flush=True)
+            rows.append({"fault": name, "table": fault.table, "applied": applied, "failed": failed})
+            status = f"caught_by={failed or 'nothing'}" if applied else "NOT APPLIED"
+            print(f"  {name:24} {status}", flush=True)
 
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(render(args.label, args.directory, names, clean, rows))
