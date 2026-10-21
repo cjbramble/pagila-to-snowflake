@@ -1,7 +1,9 @@
 """Per-column aggregate profiles, generated from the mapping spec for both dialects.
 
 Each column gets the metrics that are comparable across Postgres and Snowflake for its
-type. Content of ARRAY, VECTOR, and BINARY columns is compared by the row-hash layer.
+type. Text also gets the sum of value lengths, which catches truncation and added or lost
+whitespace even when distinct counts and min/max don't move. Content of ARRAY, VECTOR, and
+BINARY columns is compared by the row-hash layer.
 """
 
 import datetime as dt
@@ -11,7 +13,8 @@ from typing import Any
 METRICS_BY_KIND = {
     "number": ["nulls", "distinct", "min", "max", "sum"],
     "temporal": ["nulls", "distinct", "min", "max"],
-    "text": ["nulls", "distinct", "min", "max"],
+    "text": ["nulls", "distinct", "min", "max", "length_sum"],
+    "uuid": ["nulls", "distinct", "min", "max"],  # fixed length, so no length_sum
     "boolean": ["nulls", "true_count"],
     "other": ["nulls"],
 }
@@ -22,8 +25,10 @@ def column_kind(target_type: str) -> str:
         return "number"
     if target_type.startswith("TIMESTAMP") or target_type == "DATE":
         return "temporal"
-    if target_type.startswith("VARCHAR") or target_type == "UUID":
+    if target_type.startswith("VARCHAR"):
         return "text"
+    if target_type == "UUID":
+        return "uuid"
     if target_type == "BOOLEAN":
         return "boolean"
     return "other"
@@ -39,7 +44,7 @@ def postgres_expr(metric: str, column: str, mapping: dict[str, Any]) -> str:
     # Snowflake compares strings by code point; Postgres uses the database locale unless
     # told otherwise, so COLLATE "C" makes min/max agree. Non-text sources that land as
     # text (uuid, and enums, which order by declaration) compare as their text form.
-    if column_kind(mapping["target_type"]) == "text":
+    if column_kind(mapping["target_type"]) in ("text", "uuid"):
         cast = "" if mapping["source_type"] == "text" else "::text"
         col = f'{col}{cast} COLLATE "C"'
     return {
@@ -49,6 +54,7 @@ def postgres_expr(metric: str, column: str, mapping: dict[str, Any]) -> str:
         "max": f"max({col})",
         "sum": f"sum({col})",
         "true_count": f"count(*) FILTER (WHERE {col})",
+        "length_sum": f"sum(length({col}))",
     }[metric]
 
 
@@ -63,6 +69,7 @@ def snowflake_expr(metric: str, column: str, mapping: dict[str, Any]) -> str:
         "max": f"MAX({col})",
         "sum": f"SUM({col})",
         "true_count": f"COUNT_IF({col})",
+        "length_sum": f"SUM(LENGTH({col}))",
     }[metric]
 
 

@@ -35,6 +35,18 @@ What AI (Claude Code) generated in this project, what was wrong with it, and wha
 | 25 | 3 | `src/migrate/load.py` `migrate_table` | Caught only database errors; an Arrow or file error while building the Parquet extract crashed the run without a FAILED `LOAD_LOG` entry, leaving the previous SUCCESS as the latest | Codex review on PR #1 | Arrow and OS errors go through the same logging path; 2 unit tests, which fail with the old handler |
 | 26 | 7 | `src/reconcile/record.py` | Recorded only `tests/reconciliation` and `tests/etl`, so MIG-001 (in `tests/test_mapping_spec.py`) never reached `QA.RECON_RESULTS`; a failing run could be stored and summarized as clean | Codex review on PR #1 | Records the whole suite; verified 17/17 requirements covered |
 | 27 | 7 | `docker/init/03-triage-role.sh` | Hard-coded the `dq_triage` role while the query tool logs in as `$TRIAGE_PGUSER`, so the documented setting couldn't actually be changed | Codex review on PR #1 | Uses `TRIAGE_PGUSER`, quoted as an identifier; tested with a name that needs quoting |
+| 28 | 6→7A | `monthly_revenue_rules` unit test | Fixture payment amounts (5.00, 0.00, 2.00) are all distinct, so a `SUM(DISTINCT amount)` bug passes the unit test; only the data test `assert_revenue_attributes_every_payment` caught it | dbt mutation baseline (`rev_sum_distinct`); predicted before the run | Logged; left as-is so the baseline the agents are compared against stays fixed |
+| 29 | 7A | `src/faults/dbt_mutations.py` report (first run) | Took the last segment of dbt unique IDs, which for generic tests is a hash (`f5f1497056`) | Reading the generated report | `node_name()` takes the test name before the hash; report regenerated |
+| 30 | 6 | `mart_rental_returns.sql` (Claude-written) | `ceil(micros_after_due / 86400000000)` loses precision: Snowflake keeps 6 decimal places in that quotient, so a return up to ~43 ms past a day boundary isn't counted (1 µs late gave 0 days; 1 day + 43 ms gave 1). Latent: 0 real rentals affected, so the unit tests, data tests, the Postgres re-implementation, and all 16 mutations missed it | `dbt-test-author` agent's 1 µs-late fixture row, in a blind run | Exact integer arithmetic (`(m - mod(m, D)) / D + iff(mod(m, D) > 0, 1, 0)`); added as mutation 17 `rr_ceil_decimal_division` |
+| 31 | 7B | `dbt-test-author` proposals | Two "independent" recompute tests mirror the model in the same dialect (same joins, `CONVERT_TIMEZONE`/`DATE_TRUNC`; `TIMESTAMPADD` is a synonym of `DATEADD`), so a misread rule would be copied rather than caught. A replacement-fee consistency check is loose (`late_fee > 0`; the exact check exists in another test). Its report said 8 singular tests; it wrote 9 | Claude review | Logged; considered when deciding what to promote |
+| 32 | 7C | `migration-check-author` proposals | `COALESCE(MIN(x), '')` makes an all-NULL column look like an empty string in min/max (the adjacent `null_count` still tells them apart); single-row count files have no `ORDER BY` (harmless); never ran a negative control (it said so) | Claude review; fault matrix | Logged; low severity |
+| 33 | 4 | `src/reconcile/rowhash.py` and the hand-written payment pair (Claude-written) | Commented as "collision-free", but it joined `'1' || value` with only a separator: two different rows, (`'a'`, `'b␟1c'`) and (`'a␟1b'`, `'c'`), hashed identically (`c9480605…`) on both engines. Latent: no Pagila value contains `chr(31)` | `migration-check-author`'s length-prefixed design, then a counterexample run on both engines | Values encode as `1 || length || ':' || value`; generator and hand-written pair updated; checklist rule added |
+| 34 | 7D | `rule-reviewer` review | Finding 3 labels its two readings of "more than 2x overdue" confusingly and never counts the reading the rule literally states (194 rentals overdue by more than 2x), although that's one query; it raised the timestamp-vs-calendar late threshold but not the exactly-at-due boundary (2 rentals) | Claude scoring against the answer key | Logged; the agent itself said finding 3 was confusingly worded |
+| 35 | 7B | `src/triage/dbt_check.py` (Claude-written) | Overlaid every proposal file except `*.md` and ran dbt with the full environment, so a proposal could ship its own `profiles.yml` or macro, or reach the writable `SNOWFLAKE_PRIVATE_KEY_PATH`, and turn the "read-only" check into writes as `PAGILA_SVC` | Codex review on PR #2 (P1) | Only `models/**/*.yml` and `tests/**/*.sql` are overlaid, anything else is rejected by name; the profile always comes from this repo; writable key paths are withheld. 5 planted proposals: profile, macro, and model SQL rejected; a `run_query` CREATE TABLE blocked by the role; an env probe shows the key withheld (and fails with withholding off) |
+| 36 | 7C | `src/triage/check_pair.py` `run_pair` | Caught only `SystemExit`, but the query helpers raise raw `psycopg` / Snowflake errors, so one pair with a SQL error aborted the whole run and `pair_matrix` | Codex review on PR #2 | Database errors fail that pair only; control: a broken pair on each side, the good pair still runs |
+| 37 | 7C | `src/faults/pair_matrix.py` | Checked the fingerprint only after restore, so a fault that changed nothing was scored as **MISSED** and counted in the denominator; `faults.matrix` already handled this | Codex review on PR #2 | Fingerprint after apply; no-ops are reported as not applied and not scored; control: a no-op fault next to `drop_rows` |
+| 38 | 7A | `src/faults/dbt_mutations.py` `dbt()` | Ignored dbt's exit code and reused `target/run_results.json`, so a crashed pass read the previous pass's results or none, and the mutation scored as SURVIVED (or as killed by stale failures) | Codex review on PR #2 | Results are deleted before each pass; exit code other than 0/1 or no results is an invalid run, not scored; control: a Jinja-crash mutation reported invalid; full re-score still 17/17 |
+| 39 | 7B-7D | `.claude/agents/` author agents | Hard-coded `/Users/chet/...` in every tool command, so the agents fail on any other checkout or clone | Codex review on PR #2 | Relative `uv run --env-file .env`, run from the repository root, as `dq-triage` already did |
 
 ## Phase 1: Source profiling
 
@@ -207,3 +219,106 @@ What AI (Claude Code) generated in this project, what was wrong with it, and wha
   - The checks stay. Postgres forced the source keys to include the partition column, and both columns are generated unique, so a repeat is a quality defect.
   - The contract now explains why.
 - **Found while fixing 27:** a Docker single-file bind mount kept serving a stale, truncated copy of the edited init script until the container was recreated. A comment in `docker-compose.yml` now warns about this.
+
+## Phase 7A: Shared foundations for the agents
+
+- **Built:**
+  - `docs/dq_checklist.md`: rules from defects 1-27 and the phase findings, which every agent must follow.
+  - dbt targets `readonly` (PAGILA_TRIAGE_SVC: runs all 22 dbt tests, can't build) and `mutation` (builds only into `MUT_*` schemas; the real marts' `last_altered` didn't change).
+  - `src/faults/dbt_mutations.py`: 16 business-rule mutations across the 3 marts, with unit and data tests scored separately.
+- **Baseline for the existing dbt tests: 16/16 killed.** Unit tests alone caught 15, data tests alone 9 (`reports/dbt_mutation_matrix.md`).
+- **Predictions written before the run:**
+  - Right: all 16 killed, and the unit tests miss `rev_sum_distinct` (defect 28).
+  - Wrong on 2: I predicted no data test catches `clv_no_coalesce` or `clv_inner_join`, assuming every customer has a payment. 2 customers don't, so the data tests caught both. That was an unverified assumption about the data, the same failure mode as defect 18.
+- **What this means for the agents:** only the unit tests catch 7 mutations, because those mutations don't change any total or grain on today's data. An author agent that writes only data tests can score at most 9/16.
+
+## Phase 7B: dbt-test-author blind evaluation
+
+- **Setup:**
+  - Agent `.claude/agents/dbt-test-author.md` (Sonnet) in a blind workspace: model SQL, requirements, mapping spec, and checklist only. All tests were removed, and a leak check found no test or mutation names.
+  - It writes only to `proposals/`, verifies with `triage.dbt_check` (read-only dbt), and is scored with `faults.dbt_mutations`.
+- **Caveat:** the checklist and requirement text were written after these models were built, so they hint at some edge cases. That's realistic for a team checklist but not a cold start.
+- **Result:** 33 tests (5 unit, 19 generic, 9 singular). Every rule ETL-001 to ETL-007 is tagged. 0 false failures on the corrected model.
+- **It found a real bug (defect 30)** that every earlier layer had missed.
+  - Its 1 µs-late fixture failed. It proved in Snowflake that the model, not the test, was wrong, and reported it instead of weakening the test.
+  - The model was fixed. The real-data mart is unchanged: the Postgres re-implementation still matches all 51,805 rentals.
+- **Mutation scores (17 mutations, including the real bug as #17):**
+
+| Suite | Caught | Unit tests alone | Data tests alone |
+|---|---|---|---|
+| Existing tests (Claude, human-reviewed) | 16/17 (missed the real bug) | 15 | 9 |
+| `dbt-test-author`, blind | **17/17** | **17** | **15** |
+
+- **Compliance: pass.**
+  - The workspace inputs are byte-identical before and after.
+  - It wrote only under `proposals/`.
+  - It ran no `dbt run`/`build`, loader, or `faults.*` commands.
+  - It accessed no files outside the workspace except its own saved tool output.
+- **Review (defect 31):**
+  - Its unit tests were hand-checked and are all correct, including offset-crossing instants and deliberately repeated amounts.
+  - Weaknesses: some recompute tests mirror the model in the same dialect, one consistency check is loose, and its report has a test-count error.
+- **Tooling finding:** a new agent file wasn't picked up until the session restarted, even though `.claude/agents/` already existed.
+- **Promotion (human decision):**
+  - Merged the agent's 5 unit tests into `dbt/models/marts/_unit_tests.yml`, plus 3 singular tests (`mart_rental_returns_outputs_utc`, `mart_rental_returns_matches_rules`, `mart_customer_lifetime_value_matches_source`).
+  - Skipped `mart_monthly_store_revenue_matches_payments`, which mirrors the model.
+  - Kept `matches_rules` because the human named it, even though it's same-dialect. Its header says so, and `tests/etl` is the cross-dialect check.
+  - **Correction:** my recommendation both promoted "the rental recompute" and skipped "the two mirrored checks", although the rental recompute was one of those two. I flagged the contradiction rather than resolving it silently.
+- **Merged suite: 17/17 mutations caught, unit tests alone 17, data tests alone 13.** `dbt build` passes (PASS=39). Skipping the revenue mirror costs 2 data-test detections (`rev_local_month`, `rev_staff_attribution`); the unit tests still catch both.
+- **Follow-up (human decision): dropped `mart_rental_returns_matches_rules` too**, so both same-dialect mirror tests are now out.
+  - Re-scored: still **17/17**; unit tests alone 17, data tests alone 12.
+  - The drop cost one real-data detection, `rr_due_off_by_one`. Three unit tests still catch it.
+  - `dbt build` PASS=38.
+
+## Phase 7C: migration-check-author blind evaluation
+
+- **Setup:**
+  - Agent `.claude/agents/migration-check-author.md` (Sonnet) in a blind workspace: migration requirements, mapping spec, source profile, and checklist only. No reconciliation code, existing checks, or fault names; a leak check confirmed it.
+  - Task: tables payment, rental, film, customer, address; requirements MIG-003, MIG-004, MIG-005.
+  - It verifies with `triage.check_pair` (read-only pairs) and is scored with `faults.pair_matrix` (clean data, then 12 faults, with verified restores).
+- **Result:** 17 check pairs (34 complete SQL files). **0/17 false alarms on clean data.**
+- **Fault detection:** **10/12**, exactly as predicted before the run. All 10 faults within its brief were caught. The 2 misses were outside it:
+  - `drop_check_constraint` (schema, MIG-002 wasn't assigned).
+  - `tiny_vector_drift` (on `film_embedding`, which wasn't assigned).
+- **Dialect traps:** all handled.
+  - `COLLATE "C"` on text min/max; it passed the `address` trap that fails a naive `min()`.
+  - UTC timestamps at microsecond precision; lowercase UUIDs; enums compared as text; the virtual column checked by value; `fulltext` excluded; arrays hashed without relying on JSON formatting.
+- **Where it beat the existing suite:**
+  - Its row hash length-prefixes each value (`1 || length || ':' || value`), so the encoding can't collide even if a value contains the separator. Mine assumes `chr(31)` never appears.
+  - Its aggregates add a sum-of-text-length metric. That caught `trailing_whitespace` and `truncate_strings` at the aggregate layer: 9/10 in-scope faults at that layer against my 8/10. `swap_fk_values` stays row-hash-only for both, by design.
+- **Compliance: pass.** Inputs unchanged; it wrote only under `proposals/`; no reads outside the workspace, no forbidden commands, no write SQL.
+- **Review (defect 32):** minor only.
+- **Promotion (human decision): both improvements ported into `src/reconcile`.**
+  - `length_sum` metric for text columns in `aggregates.py`; UUIDs get their own kind because they're fixed length.
+  - Length-prefixed encoding in `rowhash.py` and the hand-written payment pair (fixes defect 33).
+  - Verified:
+    - Old vs new encoding on a counterexample, on both engines.
+    - The generator still matches the hand-written pair row for row.
+    - Full suite: 157 passed.
+  - **Fault matrix: still 12/12, as predicted, and the aggregate layer now also catches `trailing_whitespace`**, which only the row hash caught before.
+
+## Phase 7D: rule-reviewer blind evaluation
+
+- **Setup:**
+  - Agent `.claude/agents/rule-reviewer.md` (Sonnet) reviewed a naive, pre-decision draft of the late-fee, revenue, and lifetime-value rules (`proposals/rule-reviewer/input_rules.md`).
+  - Workspace: the draft, the mapping spec, and the source profile only. No requirements file. The checklist was left out because it was written from these decisions and would give away about 4 answers.
+  - The answer key (13 gaps the draft leaves open, with how each was settled and its real-data impact) was written and fingerprinted before the run (`proposals/rule-reviewer/answer_key.md`).
+- **Result:** 14 findings, each with a question, why it matters, evidence, and options.
+- **Recall: 12.5 / 13.** Every gap except one half:
+  - Raised: G1 rounding, G2 replace vs add, G3 never returned, G4 store attribution, G6 2x boundary, G7 time zone, G8 what 2x measures, G9 zero amounts, G10 customers with no payments, G11 payments before rental, G12 fan-out, G13 due-date arithmetic.
+  - Half credit on G5: it raised the late threshold (timestamp vs calendar date) but not the exactly-at-due boundary.
+- **Precision: 14 / 14** findings are real gaps (#13, money precision, is minor).
+- **Beyond the answer key:**
+  - **#11, the paying customer differs from the renting customer on 5 payments**, is a real source quirk not in the known source issues.
+  - #12, sparse vs dense store-months, was settled in ETL-002 but missing from my answer key, so the key was incomplete.
+  - #5: fees vs revenue.
+- **Evidence:** every number re-measured independently and exact, including 27,750 / 22,552 late (timestamp / calendar), 10,535 under 24 h, fee totals $30,244 / $42,496 / $57,788 (floor / round / ceil), 1,827 out over 2x, 25,466 customer-vs-inventory store, 324 month changes in New York time, and 5 payer ≠ renter.
+- **Recommendations:** they matched every decision the project actually made. Caveat: the project's original recommendations came from the same model family, so the agreement shows consistency, not independent proof the decisions were right.
+- **Compliance: pass.** Inputs unchanged, it wrote only `review.md`, 12 read-only queries, no writes, no access outside the workspace.
+- **Defect 34:** confusing labels in finding 3, the uncounted literal reading, and the missed exactly-at-due boundary.
+
+## Phase 7E: External AI review (Codex on PR #2)
+
+- **Findings:** Codex left 5 findings (1 P1, 4 P2). All were real, all fixed (defects 35-39).
+- **The P1 was in the safety boundary itself.** `dbt_check` is how the dbt agent runs code against Snowflake "read-only", yet a proposal could pick its own profile. Read-only now rests on three things a proposal can't change: the repo's profile, a test-files-only whitelist, and no writable credentials in dbt's environment.
+- **Three were harness honesty bugs:** a crash or a no-op could be scored as a miss or a pass. They didn't change any recorded score: the full mutation re-score is still 17/17, and no fault in the catalog is a no-op.
+- **Proof:** a negative control for each fix (above), plus 4 unit tests in `tests/test_qa_tools.py`. Full suite: 161 passed.

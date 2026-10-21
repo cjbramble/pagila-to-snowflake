@@ -1,6 +1,6 @@
 # Fault detection matrix
 
-Generated 2026-10-20 21:49 UTC by `python -m faults.matrix`. Baseline suite before faults: all passed.
+Generated 2026-10-21 01:26 UTC by `python -m faults.matrix`. Baseline suite before faults: all passed.
 
 **Mutation score: 12/12 (100%)** faults detected by at least one layer.
 
@@ -16,7 +16,7 @@ Cells show how many tests in that layer failed; `·` means the layer didn't noti
 | `duplicate_rows` | rental | · | 1 | 1 | 1 | 1 | · | 1 | yes |
 | `swap_fk_values` | rental | · | · | · | · | 1 | · | · | yes |
 | `orphan_fk` | payment | · | · | · | 1 | 1 | 1 | · | yes |
-| `trailing_whitespace` | film | · | · | · | · | 1 | · | · | yes |
+| `trailing_whitespace` | film | · | · | · | 1 | 1 | · | · | yes |
 | `truncate_microseconds` | payment | · | · | · | 1 | 1 | · | · | yes |
 | `drop_check_constraint` | film | 1 | · | · | · | · | 1 | · | yes |
 | `tiny_vector_drift` | film_embedding | · | · | · | · | 1 | · | · | yes |

@@ -27,6 +27,17 @@ measured as (
     from rentals
 ),
 
+rounded as (
+    select
+        *,
+        -- Whole days late, rounded up, in exact integer arithmetic. ceil(micros / 86400000000)
+        -- is wrong here: Snowflake keeps 6 decimal places in that quotient, so up to ~43 ms
+        -- past a day boundary rounds to 0 and the day isn't counted.
+        (micros_after_due - mod(micros_after_due, 86400000000)) / 86400000000
+            + iff(mod(micros_after_due, 86400000000) > 0, 1, 0) as days_late_rounded_up
+    from measured
+),
+
 classified as (
     select
         *,
@@ -41,7 +52,7 @@ classified as (
             when micros_after_due > 2 * rental_duration * 86400000000 then 'replacement'
             else 'daily'
         end as fee_basis
-    from measured
+    from rounded
 )
 
 select
@@ -54,12 +65,12 @@ select
     return_date,
     return_status,
     case return_status
-        when 'late' then ceil(micros_after_due / 86400000000)
+        when 'late' then days_late_rounded_up
         when 'on_time' then 0
     end::number(10, 0) as days_late,
     fee_basis,
     case fee_basis
-        when 'daily' then ceil(micros_after_due / 86400000000) * 1.00
+        when 'daily' then days_late_rounded_up * 1.00
         when 'replacement' then replacement_cost
         when 'none' then 0.00
     end::number(7, 2) as late_fee

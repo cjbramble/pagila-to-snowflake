@@ -13,3 +13,29 @@ pagila:
       schema: STAGING
       threads: 4
       query_tag: pagila-dbt
+    # Read-only identity (see sql/snowflake_triage_reader.sql): SELECT only, so agents can
+    # run dbt parse and dbt test against the real marts but never build or replace them.
+    readonly:
+      type: snowflake
+      account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
+      user: PAGILA_TRIAGE_SVC
+      private_key_path: "{{ env_var('SNOWFLAKE_TRIAGE_PRIVATE_KEY_PATH') }}"
+      role: PAGILA_TRIAGE
+      warehouse: PAGILA_WH
+      database: PAGILA_MIG
+      schema: STAGING
+      threads: 4
+      query_tag: pagila-dbt-readonly
+    # Same identity as dev, but builds into MUT_* schemas (macros/generate_schema_name.sql)
+    # so the model-mutation harness never overwrites the real STAGING and MARTS.
+    mutation:
+      type: snowflake
+      account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
+      user: PAGILA_SVC
+      private_key_path: "{{ env_var('SNOWFLAKE_PRIVATE_KEY_PATH') }}"
+      role: PAGILA_ROLE
+      warehouse: PAGILA_WH
+      database: PAGILA_MIG
+      schema: MUT_STAGING
+      threads: 4
+      query_tag: pagila-dbt-mutation

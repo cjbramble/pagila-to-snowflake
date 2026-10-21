@@ -30,7 +30,12 @@ def check_statement(sql: str) -> str:
     return statement
 
 
-def query_postgres(sql: str) -> tuple[list[str], list[tuple]]:
+def fetch(cur, limit: int | None) -> list[tuple]:
+    return cur.fetchall() if limit is None else cur.fetchmany(limit)
+
+
+def query_postgres(sql: str, limit: int | None = MAX_ROWS + 1) -> tuple[list[str], list[tuple]]:
+    """Run read-only SQL on the source; limit=None fetches every row."""
     with psycopg.connect(
         host=os.environ["PGHOST"],
         port=os.environ["PGPORT"],
@@ -41,10 +46,11 @@ def query_postgres(sql: str) -> tuple[list[str], list[tuple]]:
     ) as conn:
         conn.read_only = True
         cur = conn.execute(sql)
-        return [d.name for d in cur.description], cur.fetchmany(MAX_ROWS + 1)
+        return [d.name for d in cur.description], fetch(cur, limit)
 
 
-def query_snowflake(sql: str) -> tuple[list[str], list[tuple]]:
+def query_snowflake(sql: str, limit: int | None = MAX_ROWS + 1) -> tuple[list[str], list[tuple]]:
+    """Run read-only SQL on the target as PAGILA_TRIAGE; limit=None fetches every row."""
     name = os.environ.get("TRIAGE_SNOWFLAKE_CONNECTION", "pagila_triage")
     with snowflake.connector.connect(
         connection_name=name,
@@ -55,7 +61,7 @@ def query_snowflake(sql: str) -> tuple[list[str], list[tuple]]:
         if role != TRIAGE_ROLE:
             raise SystemExit(f"connection '{name}' uses role {role}, expected {TRIAGE_ROLE}")
         cur.execute(sql)
-        return [d[0] for d in cur.description], cur.fetchmany(MAX_ROWS + 1)
+        return [d[0] for d in cur.description], fetch(cur, limit)
 
 
 def main() -> None:
