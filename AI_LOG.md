@@ -53,6 +53,7 @@ What AI (Claude Code) generated in this project, what was wrong with it, and wha
 | 43 | 8 | `src/reconcile/signoff.py` gate | Judged only requirement status, so a failing test with no requirement (e.g. in `tests/test_loader.py`) was listed in the report while the gate said GO and exited 0, the only pass/fail step in the full CI run | Codex review on PR #3 (P1) | New gate G5: every untraced pytest and dbt test passes; no waiver can cover them. Control: a planted failing untraced test gives G5 NOT MET, exit 1 |
 | 44 | 8 | `src/reconcile/signoff.py` G1 | A requirement whose only tests were skipped counted as "covered by a test that ran"; with a waiver it could pass G1 and G2 with nothing executed | Codex review on PR #3 | Skipped-only traces are uncovered; unit test with a waived, skipped-only requirement |
 | 45 | 8 | `.github/workflows/full-run.yml` | Uploaded `reports/migration_signoff.md` with `if: always()`, but that file is committed, so a run failing before the gate published the old GO report as its result | Codex review on PR #3 | The gate writes to the runner's temp dir and only that file is uploaded; a run that never reaches the gate uploads nothing |
+| 46 | 8 | `sql/snowflake_teardown.sql` draft | Used `ALTER ACCOUNT SET RESOURCE_MONITOR = NULL`, which the Snowflake docs don't document, and claimed a monitor must be dropped after its warehouse, which the docs contradict (dropping an assigned monitor is allowed) | Checking the DROP RESOURCE MONITOR and ALTER ACCOUNT docs before committing | Only documented statements remain; the ordering comment is gone |
 
 ## Phase 1: Source profiling
 
@@ -355,3 +356,20 @@ What AI (Claude Code) generated in this project, what was wrong with it, and wha
   - Defect 41 and defect 42 (above).
   - `.claude/settings.local.json` was kept out of git only by a global gitignore; the repo's `.gitignore` now covers it, so G4 doesn't depend on one machine.
   - A draft comment claimed dbt needs every target's variables; `dbt parse` without the readonly key variable succeeded, so the placeholder was removed before commit.
+
+## Phase 8: README, cost, and teardown
+
+- **README:**
+  - Added: results at a glance, a Mermaid architecture diagram, numbered setup, fault-matrix proof under the layers table, measured cost notes, and a teardown checklist.
+  - The diagram was rendered with Mermaid 11 in a browser before committing. That caught one wrong edge: Postgres was drawn writing the load log, but the loader writes it.
+- **Costs are measured, not estimated:**
+  - 5.11 credits on `PAGILA_WH` (`WAREHOUSE_METERING_HISTORY`) at $3.00/credit (`RATE_SHEET_DAILY`).
+  - 73 MB storage.
+  - Only about 1.5 credits are attributed to queries, so most spend is per-resume minimums and auto-suspend idle time.
+- **Teardown script** (`sql/snowflake_teardown.sql`):
+  - Written for the human to run as ACCOUNTADMIN; not run.
+  - Checked against the live inventory: all 46 objects owned by `PAGILA_ROLE` are inside `PAGILA_MIG`, and the users, roles, warehouse, and monitor named in the script are exactly the ones that exist.
+  - Retention is 1 day (`DATA_RETENTION_TIME_IN_DAYS`), so `UNDROP` works for a day.
+  - Suspending an already suspended warehouse errors with "Invalid state"; the checklist says that's harmless.
+- **Side effect noticed:** the `recon` connection used for these account queries runs on `COMPUTE_WH`, so the queries resumed that warehouse. It auto-suspends after 60 s.
+- Defect 46 (above).

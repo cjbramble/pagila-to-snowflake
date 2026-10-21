@@ -2,6 +2,104 @@
 
 A small, realistic data-migration test program: migrate the Pagila sample database from PostgreSQL 18 to Snowflake, then prove the migration with layered, requirement-traced reconciliation.
 
+## At a glance
+
+| | |
+|---|---|
+| Migration sign-off | **GO**: 17/17 requirements pass, all 5 gate criteria met ([reports/migration_signoff.md](reports/migration_signoff.md)) |
+| Fault detection | 12/12 injected migration faults caught ([reports/fault_matrix.md](reports/fault_matrix.md)) |
+| dbt test strength | 17/17 model mutations caught ([reports/dbt_mutation_matrix.md](reports/dbt_mutation_matrix.md)) |
+| Tests per full run | 166 pytest, 29 dbt (8 unit, 21 data) |
+| Defects found in AI output | 46, each with what caught it ([AI_LOG.md](AI_LOG.md)) |
+| Snowflake cost to date | 5.1 credits, about $15 of compute; 73 MB storage |
+
+## Architecture
+
+```mermaid
+flowchart LR
+    subgraph src["Source: Docker"]
+        PG[("PostgreSQL 18<br>Pagila")]
+    end
+
+    subgraph sf["Snowflake: PAGILA_MIG"]
+        RAW[("RAW<br>16 tables")]
+        STG["STAGING<br>dbt views"]
+        MARTS[("MARTS<br>3 marts")]
+        QA[("QA<br>LOAD_LOG, RECON_RESULTS")]
+    end
+
+    LOAD["migrate.load<br>Parquet, PUT, COPY INTO"]
+    PG --> LOAD --> RAW
+    LOAD -. "run log" .-> QA
+    RAW -- "dbt build" --> STG --> MARTS
+
+    subgraph checks["Quality checks"]
+        REC["pytest reconciliation<br>spec, schema, volume,<br>aggregate, row hash, integrity"]
+        SODA["Soda contracts<br>RAW and MARTS"]
+        DBT["dbt unit and data tests"]
+        GATE{{"reconcile.signoff<br>G1-G5 gate"}}
+    end
+
+    PG --- REC
+    RAW --- REC
+    MARTS --- REC
+    RAW --- SODA
+    MARTS --- SODA
+    MARTS --- DBT
+    REC --> GATE
+    SODA --> GATE
+    DBT --> GATE
+    GATE --> REPORT["reports/migration_signoff.md<br>GO / NO-GO"]
+
+    FAULTS["faults.* harnesses<br>break RAW or a model,<br>score what's caught"] -.-> RAW
+    AGENTS["Claude Code agents<br>read-only logins"] -.-> PG
+    AGENTS -.-> sf
+```
+
+| Path | What's there |
+|---|---|
+| `mapping/type_mapping.yml` | Column-by-column Postgres → Snowflake spec and the 9 human mapping decisions |
+| `requirements/` | Requirement IDs (MIG, ETL), known source issues, sign-off decisions |
+| `src/migrate/` | Extract → Parquet → stage → `COPY INTO`, DDL from the spec, `QA.LOAD_LOG` |
+| `src/reconcile/`, `tests/` | Reconciliation layers, row hashing, the sign-off gate |
+| `dbt/`, `soda/` | Staging and marts with unit and data tests; Soda contracts |
+| `src/faults/` | Fault injector and the fault, mutation, and paired-check harnesses |
+| `src/triage/`, `.claude/agents/` | Read-only tools and the four QA agents |
+| `reports/` | Generated sign-off, fault, and mutation reports |
+
+## Setup
+
+One time. Snowsight steps run as ACCOUNTADMIN.
+
+1. Install Docker, `uv`, and git, and start a Snowflake trial.
+2. Create two key pairs (service user and read-only agent user):
+   ```bash
+   mkdir -p ~/.snowflake && cd ~/.snowflake
+   for k in pagila pagila_triage; do
+     openssl genrsa 2048 | openssl pkcs8 -topk8 -inform PEM -out ${k}_rsa_key.p8 -nocrypt
+     openssl rsa -in ${k}_rsa_key.p8 -pubout -out ${k}_rsa_key.pub
+     chmod 600 ${k}_rsa_key.p8
+   done
+   ```
+3. In Snowsight, paste each public key into its script and run `sql/snowflake_setup.sql`, then `sql/snowflake_triage_reader.sql`.
+4. Add both connections to `~/.snowflake/connections.toml`:
+   ```toml
+   [pagila]
+   account = "<org>-<account>"
+   user = "PAGILA_SVC"
+   authenticator = "SNOWFLAKE_JWT"
+   private_key_file = "/Users/<you>/.snowflake/pagila_rsa_key.p8"
+   role = "PAGILA_ROLE"
+   warehouse = "PAGILA_WH"
+   database = "PAGILA_MIG"
+   schema = "RAW"
+
+   [pagila_triage]   # same, with:
+   # user = "PAGILA_TRIAGE_SVC", role = "PAGILA_TRIAGE",
+   # private_key_file = ".../pagila_triage_rsa_key.p8"
+   ```
+5. `cp .env.example .env` and fill it in, then `uv sync` and `docker compose up -d`.
+
 ## Run it
 
 ```bash
@@ -17,8 +115,6 @@ uv run --env-file .env python -m faults.pair_matrix DIR     # score a folder of 
 uv run --env-file .env python -m reconcile.signoff          # run everything, write reports/migration_signoff.md (exit 1 on NO-GO)
 ```
 
-Setup (Snowflake account, key pair, `.env`) is covered in `sql/snowflake_setup.sql` and `.env.example`.
-
 ## CI
 
 | Workflow | Runs on | What it does | Needs |
@@ -26,7 +122,7 @@ Setup (Snowflake account, key pair, `.env`) is covered in `sql/snowflake_setup.s
 | `.github/workflows/ci.yml` | every PR, pushes to `main` | ruff, then `pytest -m "not target_db"` (29 tests: mapping spec vs a live Pagila source, loader, row-hash, harness and gate unit tests, dbt traceability) against a PostgreSQL 18 + pgvector service container | nothing |
 | `.github/workflows/full-run.yml` | manual (`workflow_dispatch`) | fresh source → `migrate.load` → `dbt build` → `reconcile.signoff`; fails on NO-GO and keeps the sign-off report as an artifact | repo secrets `SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_PRIVATE_KEY` |
 
-Tests that need Snowflake are marked `target_db`. The full run overwrites `RAW`, `STAGING`, and `MARTS` and uses a few minutes of XS warehouse time.
+Tests that need Snowflake are marked `target_db`. The full run overwrites `RAW`, `STAGING`, and `MARTS`; the first one took 3 min 42 s end to end.
 
 ## Reconciliation layers
 
@@ -43,6 +139,8 @@ Cheap to expensive. Each test is tagged with a requirement in `requirements/requ
 | Contract | MIG-009 | Soda contracts on key RAW tables | Rule violations in the target itself |
 | Business rule | ETL-001 to ETL-007 | dbt unit tests (edge cases), dbt data tests, and marts vs an independent Postgres implementation | Wrong rule logic, boundary errors, join fan-out or loss |
 | Mart contract | ETL-008 | Soda contracts on the three marts | Grain, value sets, fee consistency for consumers |
+
+Proof, from [reports/fault_matrix.md](reports/fault_matrix.md): each of 12 injected faults is caught by at least one layer. The row hash alone catches 11; the exception, a dropped CHECK constraint, is caught by the schema and integrity layers. Aggregates catch 9.
 
 ## dbt marts
 
@@ -67,7 +165,7 @@ Rules are written in plain English in `requirements/requirements.yml`. Every dbt
 | Requirements and business rules | Claude Code drafts | The human decides every judgement call (edge cases, attribution, rounding) |
 | Code review | Codex (a different model) on PRs #1, #2, and #3 | 11 findings fixed; the human kept 1 design choice |
 
-Almost all code and SQL here is AI-generated. The project's point is proving it correct, and [AI_LOG.md](AI_LOG.md) records every defect found in AI output, with what caught it (45 so far).
+Almost all code and SQL here is AI-generated. The project's point is proving it correct, and [AI_LOG.md](AI_LOG.md) records every defect found in AI output, with what caught it (46 so far).
 
 ### Agents in the QA workflow
 
@@ -112,3 +210,40 @@ Hand-written for `payment` in `sql/reconciliation/` (both dialects), generalized
 - Timestamps are UTC with microseconds. Numerics use fixed scale. UUIDs are lowercase.
 - Strings are compared untrimmed. Pagila has no `CHAR(n)` columns, so trimming could only hide defects.
 - Vectors are rounded to 9 decimals per element: no false mismatches on the 1,000 real embeddings, and a 1e-7 drift is caught.
+
+## Cost
+
+Measured on this trial account, where compute is billed at $3.00 per credit (`ORGANIZATION_USAGE.RATE_SHEET_DAILY`).
+
+| Item | Measured |
+|---|---|
+| All compute to date (2 days of building and testing) | 5.11 credits on `PAGILA_WH`, about $15.30 |
+| One CI full run | 3 min 42 s end to end; at most about 0.06 credits (XS bills 1 credit per running hour) |
+| Storage | 73 MB in `PAGILA_MIG` (no storage charge on the rate sheet yet) |
+| Cortex summary | about $0.0007 per call |
+
+- **Most of the spend is idle time.** Only about 1.5 of the 5.1 credits are attributed to queries. The rest is the 60-second minimum each time the warehouse resumes, plus the 60 seconds before it auto-suspends, paid on every short burst of tests. Attribution in `ACCOUNT_USAGE` also lags by hours.
+- **Biggest query consumers:** the loader, pytest suite, and fault harnesses (`pagila-migration` tag, 0.69 credits), Soda (0.53), dbt mutations (0.14).
+- **Guardrails:**
+  - `PAGILA_MONITOR` allows 20 credits a month on `PAGILA_WH`. It notifies at 50% and 75% and suspends at 90%.
+  - `ACCOUNT_MONITOR` allows 50 credits a month across every warehouse in the account and suspends at 90%.
+  - Every warehouse auto-suspends after 60 seconds.
+
+## Teardown
+
+1. **Stop spending.** In Snowsight: `ALTER WAREHOUSE PAGILA_WH SUSPEND;`. "Invalid state ... cannot be suspended" means it already is. Check `SHOW WAREHOUSES;` for anything else still `STARTED`.
+2. **Check what it cost:**
+   ```sql
+   SHOW RESOURCE MONITORS;   -- used_credits per monitor this month
+   SELECT WAREHOUSE_NAME, ROUND(SUM(CREDITS_USED), 3)
+   FROM SNOWFLAKE.ACCOUNT_USAGE.WAREHOUSE_METERING_HISTORY GROUP BY 1;   -- lags up to 3 h
+   ```
+3. **Drop the project:** run [sql/snowflake_teardown.sql](sql/snowflake_teardown.sql) as ACCOUNTADMIN.
+   - It drops the database (every schema, including `FAULTS` and `MUT_*`), the warehouse, both users, both roles, and `PAGILA_MONITOR`.
+   - The database can be recovered with `UNDROP DATABASE PAGILA_MIG` for 1 day; after that it's gone.
+   - It leaves `ACCOUNT_MONITOR` and anything that predates the project.
+4. **Local:**
+   - `docker compose down -v` deletes the source container and its volume.
+   - Delete `~/.snowflake/pagila_rsa_key.*` and `~/.snowflake/pagila_triage_rsa_key.*`.
+   - Remove `[pagila]` and `[pagila_triage]` from `connections.toml`, and delete `.env`.
+5. **GitHub:** `gh secret delete SNOWFLAKE_ACCOUNT` and `gh secret delete SNOWFLAKE_PRIVATE_KEY`.
