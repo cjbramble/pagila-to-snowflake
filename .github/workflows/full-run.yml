@@ -68,13 +68,15 @@ jobs:
         working-directory: dbt
         run: uv run dbt build --profiles-dir .
 
+      # Written outside the checkout: the committed report must never be uploaded as this
+      # run's result when a step fails before the gate.
       - name: Sign-off gate
-        run: uv run python -m reconcile.signoff
+        run: uv run python -m reconcile.signoff --report "$RUNNER_TEMP/migration_signoff.md"
 
       - name: Keep the sign-off report
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: migration-signoff
-          path: reports/migration_signoff.md
+          path: ${{ runner.temp }}/migration_signoff.md
           if-no-files-found: warn
