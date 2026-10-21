@@ -39,6 +39,7 @@ What AI (Claude Code) generated in this project, what was wrong with it, and wha
 | 29 | 7A | `src/faults/dbt_mutations.py` report (first run) | Took the last segment of dbt unique IDs, which for generic tests is a hash (`f5f1497056`) | Reading the generated report | `node_name()` takes the test name before the hash; report regenerated |
 | 30 | 6 | `mart_rental_returns.sql` (Claude-written) | `ceil(micros_after_due / 86400000000)` loses precision: Snowflake keeps 6 decimal places in that quotient, so a return up to ~43 ms past a day boundary isn't counted (1 µs late gave 0 days; 1 day + 43 ms gave 1). Latent: 0 real rentals affected, so the unit tests, data tests, the Postgres re-implementation, and all 16 mutations missed it | `dbt-test-author` agent's 1 µs-late fixture row, in a blind run | Exact integer arithmetic (`(m - mod(m, D)) / D + iff(mod(m, D) > 0, 1, 0)`); added as mutation 17 `rr_ceil_decimal_division` |
 | 31 | 7B | `dbt-test-author` proposals | Two "independent" recompute tests mirror the model in the same dialect (same joins, `CONVERT_TIMEZONE`/`DATE_TRUNC`; `TIMESTAMPADD` is a synonym of `DATEADD`), so a misread rule would be copied rather than caught. A replacement-fee consistency check is loose (`late_fee > 0`; the exact check exists in another test). Its report said 8 singular tests; it wrote 9 | Claude review | Logged; considered when deciding what to promote |
+| 32 | 7C | `migration-check-author` proposals | `COALESCE(MIN(x), '')` makes an all-NULL column look like an empty string in min/max (the adjacent `null_count` still tells them apart); single-row count files have no `ORDER BY` (harmless); never ran a negative control (it said so) | Claude review; fault matrix | Logged; low severity |
 
 ## Phase 1: Source profiling
 
@@ -260,3 +261,22 @@ What AI (Claude Code) generated in this project, what was wrong with it, and wha
   - Re-scored: still **17/17**; unit tests alone 17, data tests alone 12.
   - The drop cost one real-data detection, `rr_due_off_by_one`. Three unit tests still catch it.
   - `dbt build` PASS=38.
+
+## Phase 7C: migration-check-author blind evaluation
+
+- **Setup:**
+  - Agent `.claude/agents/migration-check-author.md` (Sonnet) in a blind workspace: migration requirements, mapping spec, source profile, and checklist only. No reconciliation code, existing checks, or fault names; a leak check confirmed it.
+  - Task: tables payment, rental, film, customer, address; requirements MIG-003, MIG-004, MIG-005.
+  - It verifies with `triage.check_pair` (read-only pairs) and is scored with `faults.pair_matrix` (clean data, then 12 faults, with verified restores).
+- **Result:** 17 check pairs (34 complete SQL files). **0/17 false alarms on clean data.**
+- **Fault detection:** **10/12**, exactly as predicted before the run. All 10 faults within its brief were caught. The 2 misses were outside it:
+  - `drop_check_constraint` (schema, MIG-002 wasn't assigned).
+  - `tiny_vector_drift` (on `film_embedding`, which wasn't assigned).
+- **Dialect traps:** all handled.
+  - `COLLATE "C"` on text min/max; it passed the `address` trap that fails a naive `min()`.
+  - UTC timestamps at microsecond precision; lowercase UUIDs; enums compared as text; the virtual column checked by value; `fulltext` excluded; arrays hashed without relying on JSON formatting.
+- **Where it beat the existing suite:**
+  - Its row hash length-prefixes each value (`1 || length || ':' || value`), so the encoding can't collide even if a value contains the separator. Mine assumes `chr(31)` never appears.
+  - Its aggregates add a sum-of-text-length metric. That caught `trailing_whitespace` and `truncate_strings` at the aggregate layer: 9/10 in-scope faults at that layer against my 8/10. `swap_fk_values` stays row-hash-only for both, by design.
+- **Compliance: pass.** Inputs unchanged; it wrote only under `proposals/`; no reads outside the workspace, no forbidden commands, no write SQL.
+- **Review (defect 32):** minor only.
