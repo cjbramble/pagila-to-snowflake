@@ -11,28 +11,28 @@
 
 dispositions:
   SRC-001:
-    status: pending
+    status: accepted
     recommendation: accepted. The 14,665 early payments are how Pagila's data was
       generated; they migrate unchanged (MIG-005), and ETL-003 counts them normally.
-    decided_by:
+    decided_by: Chet
   SRC-002:
-    status: pending
+    status: accepted
     recommendation: accepted. Zero-amount payments are real rows; ETL-002 counts them.
-    decided_by:
+    decided_by: Chet
   SRC-003:
-    status: pending
+    status: accepted
     recommendation: accepted for this demo (D09). On a real program, a data owner signs off
       on migrating credential hashes, or the column is excluded.
-    decided_by:
+    decided_by: Chet
   SRC-004:
-    status: pending
+    status: accepted
     recommendation: accepted. No declared FK and no orphans; the marts don't use store
       managers.
-    decided_by:
+    decided_by: Chet
   SRC-005:
-    status: pending
+    status: accepted
     recommendation: accepted. 5 payments, 9.95 total; lifetime value credits the payer,
       which is what the payment row records.
-    decided_by:
+    decided_by: Chet
 
 waivers: []
