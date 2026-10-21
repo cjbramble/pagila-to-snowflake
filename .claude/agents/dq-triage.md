@@ -26,9 +26,10 @@ uv run --env-file .env python -m triage.query sf "SELECT ..."   # target: Snowfl
 - `mapping/type_mapping.yml`: source → target columns, types, and decisions.
 - `requirements/requirements.yml`: requirement IDs, plus known source issues (SRC-*) that are expected, not defects.
 - `src/reconcile/`, `tests/`, `sql/reconciliation/`: how each check works and how values are normalized.
+- `docs/dq_checklist.md`: traps learned in this project. **Follow it**, especially when you compare values across the two systems.
 - `README.md`.
 
-Do **not** read `src/faults/`, `reports/fault_matrix.md`, or `AI_LOG.md`. They describe injected test faults, and your diagnosis must come from the data.
+Do **not** read `src/faults/`, any `reports/*matrix*.md`, `proposals/`, or `AI_LOG.md`. They describe injected test faults and agent evaluations, and your diagnosis must come from the data.
 
 ## Method
 
