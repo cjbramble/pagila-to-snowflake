@@ -10,8 +10,8 @@ A small, realistic data-migration test program: migrate the Pagila sample databa
 | Fault detection | 12/12 injected migration faults caught ([reports/fault_matrix.md](reports/fault_matrix.md)) |
 | dbt test strength | 17/17 model mutations caught ([reports/dbt_mutation_matrix.md](reports/dbt_mutation_matrix.md)) |
 | Tests per full run | 166 pytest, 29 dbt (8 unit, 21 data) |
-| Defects found in AI output | 46, each with what caught it ([AI_LOG.md](AI_LOG.md)) |
-| Snowflake cost to date | 5.1 credits, about $15 of compute; 73 MB storage |
+| Defects found in AI output | 50, each with what caught it ([AI_LOG.md](AI_LOG.md)) |
+| Snowflake cost to date | 4.6 compute credits on the project warehouse, about $14; 73 MB storage |
 
 ## Architecture
 
@@ -74,11 +74,11 @@ One time. Snowsight steps run as ACCOUNTADMIN.
 1. Install Docker, `uv`, and git, and start a Snowflake trial.
 2. Create two key pairs (service user and read-only agent user):
    ```bash
-   mkdir -p ~/.snowflake && cd ~/.snowflake
+   mkdir -p ~/.snowflake
    for k in pagila pagila_triage; do
-     openssl genrsa 2048 | openssl pkcs8 -topk8 -inform PEM -out ${k}_rsa_key.p8 -nocrypt
-     openssl rsa -in ${k}_rsa_key.p8 -pubout -out ${k}_rsa_key.pub
-     chmod 600 ${k}_rsa_key.p8
+     openssl genrsa 2048 | openssl pkcs8 -topk8 -inform PEM -out ~/.snowflake/${k}_rsa_key.p8 -nocrypt
+     openssl rsa -in ~/.snowflake/${k}_rsa_key.p8 -pubout -out ~/.snowflake/${k}_rsa_key.pub
+     chmod 600 ~/.snowflake/${k}_rsa_key.p8
    done
    ```
 3. In Snowsight, paste each public key into its script and run `sql/snowflake_setup.sql`, then `sql/snowflake_triage_reader.sql`.
@@ -94,9 +94,15 @@ One time. Snowsight steps run as ACCOUNTADMIN.
    database = "PAGILA_MIG"
    schema = "RAW"
 
-   [pagila_triage]   # same, with:
-   # user = "PAGILA_TRIAGE_SVC", role = "PAGILA_TRIAGE",
-   # private_key_file = ".../pagila_triage_rsa_key.p8"
+   [pagila_triage]
+   account = "<org>-<account>"
+   user = "PAGILA_TRIAGE_SVC"
+   authenticator = "SNOWFLAKE_JWT"
+   private_key_file = "/Users/<you>/.snowflake/pagila_triage_rsa_key.p8"
+   role = "PAGILA_TRIAGE"
+   warehouse = "PAGILA_WH"
+   database = "PAGILA_MIG"
+   schema = "RAW"
    ```
 5. `cp .env.example .env` and fill it in, then `uv sync` and `docker compose up -d`.
 
@@ -163,9 +169,9 @@ Rules are written in plain English in `requirements/requirements.yml`. Every dbt
 | dbt models, unit/data/singular tests | Claude Code | The human (business-rule decisions), model mutations, an independent Postgres re-implementation |
 | Fault injector and matrix | Claude Code | Predictions written down before each run, verified restores |
 | Requirements and business rules | Claude Code drafts | The human decides every judgement call (edge cases, attribution, rounding) |
-| Code review | Codex (a different model) on PRs #1, #2, and #3 | 11 findings fixed; the human kept 1 design choice |
+| Code review | Codex (a different model) on PRs #1 to #4 | 15 findings fixed; the human kept 1 design choice |
 
-Almost all code and SQL here is AI-generated. The project's point is proving it correct, and [AI_LOG.md](AI_LOG.md) records every defect found in AI output, with what caught it (46 so far).
+Almost all code and SQL here is AI-generated. The project's point is proving it correct, and [AI_LOG.md](AI_LOG.md) records every defect found in AI output, with what caught it (50 so far).
 
 ### Agents in the QA workflow
 
@@ -213,16 +219,17 @@ Hand-written for `payment` in `sql/reconciliation/` (both dialects), generalized
 
 ## Cost
 
-Measured on this trial account, where compute is billed at $3.00 per credit (`ORGANIZATION_USAGE.RATE_SHEET_DAILY`).
+Measured on this trial account on 2026-10-21, where compute is billed at $3.00 per credit (`ORGANIZATION_USAGE.RATE_SHEET_DAILY`). `ACCOUNT_USAGE` lags by hours, so recent runs show up late.
 
 | Item | Measured |
 |---|---|
-| All compute to date (2 days of building and testing) | 5.11 credits on `PAGILA_WH`, about $15.30 |
+| Project compute (2 days of building and testing) | 4.60 credits on `PAGILA_WH` (`CREDITS_USED_COMPUTE`), about $13.80 |
+| Billed for the whole account | 6.34 credits (`METERING_DAILY_HISTORY.CREDITS_BILLED`), about $19; includes the pre-existing `COMPUTE_WH` and cloud services after Snowflake's daily adjustment |
 | One CI full run | 3 min 42 s end to end; at most about 0.06 credits (XS bills 1 credit per running hour) |
 | Storage | 73 MB in `PAGILA_MIG` (no storage charge on the rate sheet yet) |
 | Cortex summary | about $0.0007 per call |
 
-- **Most of the spend is idle time.** Only about 1.5 of the 5.1 credits are attributed to queries. The rest is the 60-second minimum each time the warehouse resumes, plus the 60 seconds before it auto-suspends, paid on every short burst of tests. Attribution in `ACCOUNT_USAGE` also lags by hours.
+- **Most of the spend is idle time.** Only about 1.5 of the 4.6 compute credits are attributed to queries. The rest is the 60-second minimum each time the warehouse resumes, plus the 60 seconds before it auto-suspends, paid on every short burst of tests. Attribution in `ACCOUNT_USAGE` also lags by hours.
 - **Biggest query consumers:** the loader, pytest suite, and fault harnesses (`pagila-migration` tag, 0.69 credits), Soda (0.53), dbt mutations (0.14).
 - **Guardrails:**
   - `PAGILA_MONITOR` allows 20 credits a month on `PAGILA_WH`. It notifies at 50% and 75% and suspends at 90%.
@@ -235,12 +242,16 @@ Measured on this trial account, where compute is billed at $3.00 per credit (`OR
 2. **Check what it cost:**
    ```sql
    SHOW RESOURCE MONITORS;   -- used_credits per monitor this month
-   SELECT WAREHOUSE_NAME, ROUND(SUM(CREDITS_USED), 3)
+   -- What was billed, per day and service (cloud services after the daily adjustment)
+   SELECT USAGE_DATE, SERVICE_TYPE, ROUND(SUM(CREDITS_BILLED), 3)
+   FROM SNOWFLAKE.ACCOUNT_USAGE.METERING_DAILY_HISTORY GROUP BY 1, 2 ORDER BY 1, 2;
+   -- Warehouse compute per warehouse (CREDITS_USED would add unadjusted cloud services)
+   SELECT WAREHOUSE_NAME, ROUND(SUM(CREDITS_USED_COMPUTE), 3)
    FROM SNOWFLAKE.ACCOUNT_USAGE.WAREHOUSE_METERING_HISTORY GROUP BY 1;   -- lags up to 3 h
    ```
 3. **Drop the project:** run [sql/snowflake_teardown.sql](sql/snowflake_teardown.sql) as ACCOUNTADMIN.
    - It drops the database (every schema, including `FAULTS` and `MUT_*`), the warehouse, both users, both roles, and `PAGILA_MONITOR`.
-   - The database can be recovered with `UNDROP DATABASE PAGILA_MIG` for 1 day; after that it's gone.
+   - `UNDROP DATABASE PAGILA_MIG` works for 1 day (Time Travel). After that the database spends 7 days in Fail-safe, recoverable only by Snowflake support and still billed for storage, then it's purged.
    - It leaves `ACCOUNT_MONITOR` and anything that predates the project.
 4. **Local:**
    - `docker compose down -v` deletes the source container and its volume.

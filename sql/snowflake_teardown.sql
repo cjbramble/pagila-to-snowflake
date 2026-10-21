@@ -1,6 +1,6 @@
 -- Removes everything this project created in Snowflake. Run in Snowsight as ACCOUNTADMIN,
--- top to bottom, only when you're done with the project: it can't be undone after the
--- 1-day Time Travel window on the database.
+-- top to bottom, only when you're done with the project: you can undo the database drop
+-- only within its 1-day Time Travel window.
 --
 -- Not touched: objects that predate the project (COMPUTE_WH, RECON_PRACTICE, ...) and the
 -- account-wide ACCOUNT_MONITOR guardrail (optional block at the end).
@@ -11,7 +11,8 @@ USE ROLE ACCOUNTADMIN;
 ALTER WAREHOUSE IF EXISTS PAGILA_WH SET AUTO_RESUME = FALSE;
 
 -- Every schema (RAW, STAGING, MARTS, QA, FAULTS, MUT_STAGING, MUT_MARTS), the stage, file
--- format, tables, and views. Recoverable with UNDROP DATABASE PAGILA_MIG for 1 day.
+-- format, tables, and views. UNDROP DATABASE PAGILA_MIG works for 1 day; then 7 days of
+-- Fail-safe (recoverable only by Snowflake support, storage still billed), then purged.
 DROP DATABASE IF EXISTS PAGILA_MIG;
 
 DROP WAREHOUSE IF EXISTS PAGILA_WH;
