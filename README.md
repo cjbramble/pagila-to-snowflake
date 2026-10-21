@@ -12,6 +12,8 @@ uv run --env-file .env pytest                               # spec, loader, reco
 uv run --env-file .env python -m faults.matrix              # inject each fault, score detection (~8 min)
 uv run --env-file .env python -m reconcile.record           # store a suite run in QA.RECON_RESULTS
 uv run --env-file .env python -m reconcile.summarize        # Cortex summary of its failures, fact-checked
+uv run --env-file .env python -m faults.dbt_mutations       # break dbt models 17 ways, score the dbt tests
+uv run --env-file .env python -m faults.pair_matrix DIR     # score a folder of paired SQL checks against the faults
 ```
 
 Setup (Snowflake account, key pair, `.env`) is covered in `sql/snowflake_setup.sql` and `.env.example`.
@@ -55,18 +57,30 @@ Rules are written in plain English in `requirements/requirements.yml`. Every dbt
 | Requirements and business rules | Claude Code drafts | The human decides every judgement call (edge cases, attribution, rounding) |
 | Code review | Codex (a different model) on PR #1 | The human accepted 3 findings and kept 1 design choice |
 
-Almost all code and SQL here is AI-generated. The project's point is proving it correct, and [AI_LOG.md](AI_LOG.md) records every defect found in AI output, with what caught it (27 so far).
+Almost all code and SQL here is AI-generated. The project's point is proving it correct, and [AI_LOG.md](AI_LOG.md) records every defect found in AI output, with what caught it (34 so far).
 
-### Agents and AI features in the pipeline
+### Agents in the QA workflow
 
-| Piece | What it does | Evidence |
-|---|---|---|
-| `dq-triage` agent (`.claude/agents/`) | Given failing check output, queries both databases and reports the affected rows, pattern, root cause, fix, and the earliest catching check | Blind test on 4 random faults: 31/32, compliance 4/4 (`AI_LOG.md`) |
-| Read-only access (`src/triage/query.py`) | The agent's only database tool: Postgres `dq_triage` and Snowflake `PAGILA_TRIAGE_SVC`, both SELECT-only | Writes rejected on both databases, including with read-only mode forced off |
-| AI-generated SQL | Validation queries written from requirement IDs, then human-reviewed | 5 defects, one latent `DATEDIFF` bug (`reports/ai_sql_review.md`) |
-| Cortex `AI_SUMMARIZE_AGG` | Summarizes a recorded run's failures; output is fact-checked for invented or omitted facts | The only AI function a trial account allows; about $0.0007 per call |
+Four focused Claude Code subagents (`.claude/agents/`). Each one was evaluated blind against ground truth before being trusted.
 
-Setup for the agent's identities: `docker/init/03-triage-role.sh` (Postgres) and `sql/snowflake_triage_reader.sql` (Snowflake, run as ACCOUNTADMIN).
+| Agent | Job | How it was scored | Result |
+|---|---|---|---|
+| `dq-triage` | Diagnose a failing check: affected rows, pattern, root cause, fix, earliest catching test | 4 randomly drawn faults, given only the failing output | 31/32; it found a real gap (MIG-006 now recounts tables) |
+| `dbt-test-author` | Write dbt unit, data, and singular tests from a model and its ETL rules | 17 model mutations, against the existing tests | 17/17 vs 16/17; **found a real precision bug** in `mart_rental_returns`, now fixed |
+| `migration-check-author` | Write paired Postgres/Snowflake validation SQL for tables and MIG requirements | False alarms on clean data, then the 12-fault matrix | 0/17 false alarms; 10/12 faults (all 10 in its brief); two of its ideas were ported into `src/reconcile` |
+| `rule-reviewer` | Find the ambiguities in a draft business rule before it's built | Recall against 13 gaps settled in this project | 12.5/13 recall, 14/14 precision, every count exact; found SRC-005 |
+
+How the agents are kept honest:
+- **Read-only database access.** Agents query only through `triage.query`, `triage.check_pair`, and `triage.dbt_check`, as Postgres `dq_triage` and Snowflake `PAGILA_TRIAGE_SVC`. Writes were rejected on both, even with read-only mode forced off.
+- **Proposals, not edits.** Authors write only to `proposals/<agent>/`. A human reviews the output and promotes what's good into the suite.
+- **Blind evaluation.** Workspaces are stripped of the existing tests and answers and checked for leaks; scores come from mutation and fault harnesses (`faults.dbt_mutations`, `faults.pair_matrix`, `faults.matrix`).
+- **One shared rule set.** Every agent follows [docs/dq_checklist.md](docs/dq_checklist.md), the traps behind the 34 defects in [AI_LOG.md](AI_LOG.md).
+
+Other AI in the pipeline:
+- **AI-generated validation SQL:** written from requirement IDs and human-reviewed. 5 defects, one a latent `DATEDIFF` bug (`reports/ai_sql_review.md`).
+- **Cortex `AI_SUMMARIZE_AGG`:** summarizes a recorded run's failures, and the summary is fact-checked for invented or omitted facts. It's the only AI function a trial account allows, at about $0.0007 per call.
+
+Setup for the read-only identities: `docker/init/03-triage-role.sh` (Postgres) and `sql/snowflake_triage_reader.sql` (Snowflake, run as ACCOUNTADMIN). New agent files load only after restarting Claude Code.
 
 ## Soda Core vs the custom pytest layer
 
