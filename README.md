@@ -1,6 +1,14 @@
 # Pagila → Snowflake migration QA
 
-A small, realistic data-migration test program: migrate the Pagila sample database from PostgreSQL 18 to Snowflake, then prove the migration with layered, requirement-traced reconciliation.
+Data QA automation for a database migration and its ETL. The system under test is deliberately small: the Pagila sample database migrated from PostgreSQL 18 to Snowflake, with three dbt business marts on top. It exists to be tested.
+
+**About Pagila.** Pagila is the PostgreSQL port of MySQL's Sakila sample database: a fictional DVD-rental business with films, actors, customers, stores, staff, rentals, and payments (16 tables, about 122,000 rows). It's used here because it's public and reproducible (vendored at a pinned commit; see [docker/pagila/SOURCE.md](docker/pagila/SOURCE.md)), and because it has the column types that make migrations go wrong: a partitioned table (payment, 55 partitions), enums, domains, arrays, `tsvector`, `bytea`, and pgvector embeddings.
+
+The QA work is the point:
+- requirement-traced reconciliation from source to target
+- data contracts and business-rule tests
+- fault injection that proves the checks catch defects
+- a go/no-go sign-off gate, run on demand as a GitHub Actions workflow
 
 ## At a glance
 
@@ -10,61 +18,53 @@ A small, realistic data-migration test program: migrate the Pagila sample databa
 | Fault detection | 12/12 injected migration faults caught ([reports/fault_matrix.md](reports/fault_matrix.md)) |
 | dbt test strength | 17/17 model mutations caught ([reports/dbt_mutation_matrix.md](reports/dbt_mutation_matrix.md)) |
 | Tests per full run | 166 pytest, 29 dbt (8 unit, 21 data) |
-| Defects found in AI output | 50, each with what caught it ([AI_LOG.md](AI_LOG.md)) |
+| Defects found in AI output | 55, each with what caught it ([AI_LOG.md](AI_LOG.md)) |
 | Snowflake cost to date | 4.6 compute credits on the project warehouse, about $14; 73 MB storage |
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    subgraph src["Source: Docker"]
-        PG[("PostgreSQL 18<br>Pagila")]
+    subgraph sut["System under test"]
+        direction TB
+        PG[("PostgreSQL 18<br>Pagila source")]
+        RAW[("Snowflake RAW<br>migrated tables")]
+        MARTS[("Snowflake MARTS<br>dbt business marts")]
+        PG -- "loader" --> RAW -- "dbt" --> MARTS
     end
 
-    subgraph sf["Snowflake: PAGILA_MIG"]
-        RAW[("RAW<br>16 tables")]
-        STG["STAGING<br>dbt views"]
-        MARTS[("MARTS<br>3 marts")]
-        QA[("QA<br>LOAD_LOG, RECON_RESULTS")]
+    REQ["Requirements<br>and mapping spec"]
+
+    subgraph suite["Validation suite"]
+        direction TB
+        REC["Reconciliation (pytest)<br>source vs target: schema, counts,<br>aggregates, row hashes, integrity"]
+        SODA["Data contracts (Soda)<br>key RAW tables and marts"]
+        RULES["Business-rule tests (dbt)<br>unit and data tests"]
     end
 
-    LOAD["migrate.load<br>Parquet, PUT, COPY INTO"]
-    PG --> LOAD --> RAW
-    LOAD -. "run log" .-> QA
-    RAW -- "dbt build" --> STG --> MARTS
+    GATE{{"Sign-off gate"}}
+    REPORT["Sign-off report<br>GO / NO-GO"]
 
-    subgraph checks["Quality checks"]
-        REC["pytest reconciliation<br>spec, schema, volume,<br>aggregate, row hash, integrity"]
-        SODA["Soda contracts<br>RAW and MARTS"]
-        DBT["dbt unit and data tests"]
-        GATE{{"reconcile.signoff<br>G1-G5 gate"}}
-    end
+    AUTHOR["AI-assisted authoring<br>profiling SQL, paired checks,<br>dbt tests, rule reviews"]
+    FAULTS["Fault injection<br>and model mutations"]
 
-    PG --- REC
-    RAW --- REC
-    MARTS --- REC
-    RAW --- SODA
-    MARTS --- SODA
-    MARTS --- DBT
-    REC --> GATE
-    SODA --> GATE
-    DBT --> GATE
-    GATE --> REPORT["reports/migration_signoff.md<br>GO / NO-GO"]
-
-    FAULTS["faults.* harnesses<br>break RAW or a model,<br>score what's caught"] -.-> RAW
-    AGENTS["Claude Code agents<br>read-only logins"] -.-> PG
-    AGENTS -.-> sf
+    sut -- "queried read-only" --> suite
+    REQ -- "traced to" --> suite
+    REQ --> AUTHOR -- "human-reviewed<br>proposals" --> suite
+    FAULTS -. "inject known defects<br>to prove they're caught" .-> sut
+    suite --> GATE --> REPORT
 ```
 
 | Path | What's there |
 |---|---|
-| `mapping/type_mapping.yml` | Column-by-column Postgres → Snowflake spec and the 9 human mapping decisions |
 | `requirements/` | Requirement IDs (MIG, ETL), known source issues, sign-off decisions |
-| `src/migrate/` | Extract → Parquet → stage → `COPY INTO`, DDL from the spec, `QA.LOAD_LOG` |
-| `src/reconcile/`, `tests/` | Reconciliation layers, row hashing, the sign-off gate |
-| `dbt/`, `soda/` | Staging and marts with unit and data tests; Soda contracts |
+| `mapping/type_mapping.yml` | Column-by-column Postgres → Snowflake spec and the 9 human mapping decisions |
+| `tests/`, `src/reconcile/` | Reconciliation layers, row hashing, the sign-off gate |
+| `soda/contracts/` | Data contracts on key RAW tables and the marts |
+| `dbt/models/marts/*.yml`, `dbt/tests/` | Business-rule tests: unit and data tests beside each mart, singular tests |
 | `src/faults/` | Fault injector and the fault, mutation, and paired-check harnesses |
-| `src/triage/`, `.claude/agents/` | Read-only tools and the four QA agents |
+| `.claude/agents/`, `src/triage/` | AI agents that draft checks and tests, and their read-only query tools |
+| `src/migrate/`, `dbt/models/` | System under test: the loader and the dbt models |
 | `reports/` | Generated sign-off, fault, and mutation reports |
 
 ## Setup
@@ -125,7 +125,7 @@ uv run --env-file .env python -m reconcile.signoff          # run everything, wr
 
 | Workflow | Runs on | What it does | Needs |
 |---|---|---|---|
-| `.github/workflows/ci.yml` | every PR, pushes to `main` | ruff, then `pytest -m "not target_db"` (29 tests: mapping spec vs a live Pagila source, loader, row-hash, harness and gate unit tests, dbt traceability) against a PostgreSQL 18 + pgvector service container | nothing |
+| `.github/workflows/ci.yml` | every PR, pushes to `main` | ruff, then `pytest -m "not target_db"` (31 tests: mapping spec vs a live Pagila source, loader, row-hash, harness and gate unit tests, dbt traceability) against a PostgreSQL 18 + pgvector service container | nothing |
 | `.github/workflows/full-run.yml` | manual (`workflow_dispatch`) | fresh source → `migrate.load` → `dbt build` → `reconcile.signoff`; fails on NO-GO and keeps the sign-off report as an artifact | repo secrets `SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_PRIVATE_KEY` |
 
 Tests that need Snowflake are marked `target_db`. The full run overwrites `RAW`, `STAGING`, and `MARTS`; the first one took 3 min 42 s end to end.
@@ -160,18 +160,12 @@ Rules are written in plain English in `requirements/requirements.yml`. Every dbt
 
 ## AI in the workflow
 
-### Who authored what
+AI generated most of the code, SQL, and tests here; none of it was accepted on trust.
 
-| Artifact | Written by | Validated by |
-|---|---|---|
-| Profiling SQL, mapping spec, loader, DDL generator | Claude Code (AI) | The human (all 9 mapping decisions), plus live probes in Snowflake |
-| Reconciliation layers, row-hash SQL, Soda contracts | Claude Code | Cross-checks with differently shaped queries, negative controls, the fault matrix |
-| dbt models, unit/data/singular tests | Claude Code | The human (business-rule decisions), model mutations, an independent Postgres re-implementation |
-| Fault injector and matrix | Claude Code | Predictions written down before each run, verified restores |
-| Requirements and business rules | Claude Code drafts | The human decides every judgement call (edge cases, attribution, rounding) |
-| Code review | Codex (a different model) on PRs #1 to #4 | 15 findings fixed; the human kept 1 design choice |
-
-Almost all code and SQL here is AI-generated. The project's point is proving it correct, and [AI_LOG.md](AI_LOG.md) records every defect found in AI output, with what caught it (50 so far).
+- **Every generated artifact is proven:** cross-checks with differently shaped queries, negative controls, fault injection and model mutations, and live probes of Snowflake instead of recalled API behavior.
+- **A human makes every judgement call:** the 9 mapping decisions, business-rule edge cases, known-issue dispositions, and the sign-off gate criteria.
+- **A second model reviews every PR.** Codex left 21 findings across PRs #1 to #5: 20 fixed, and 1 design choice the human kept.
+- **Every defect is logged.** [AI_LOG.md](AI_LOG.md) records each defect found in AI output and what caught it (55 so far).
 
 ### Agents in the QA workflow
 
@@ -196,17 +190,23 @@ Other AI in the pipeline:
 
 Setup for the read-only identities: `docker/init/03-triage-role.sh` (Postgres) and `sql/snowflake_triage_reader.sql` (Snowflake, run as ACCOUNTADMIN). New agent files load only after restarting Claude Code.
 
-## Soda Core vs the custom pytest layer
+## pytest and Soda
 
-| | Soda Core v4 (open source) | Custom pytest |
-|---|---|---|
-| Model | Declarative YAML contract per dataset | Python tests generated from the mapping spec |
-| Compares source to target | **No.** Reconciliation checks (`row_count_diff`, `rows_diff`, ...) need the licensed `soda-reconciliation` package | Yes: counts, aggregates, and row hashes across both systems |
-| Good at | Readable rules on one dataset: missing, duplicates, valid values, ranges, schema shape | Exact cross-dialect equality, with the offending keys in the failure |
-| Dialect handling | Hidden inside Soda | Explicit and reviewable (UTC, collation, enum ordering, null tokens) |
-| Setup cost | Data source YAML + contract per table; no code | More code; owns every normalization decision |
+**pytest reconciliation** (`tests/`, `src/reconcile/`) compares the Postgres source with the Snowflake target for every migrated table:
+- schema against the mapping spec
+- row counts and per-column aggregates
+- a normalized row hash per primary key
+- orphan and domain-rule checks in the target
 
-Takeaway: use Soda contracts as the target's ongoing data-quality guardrail, owned by the data team. Use the pytest reconciliation to sign off the migration itself.
+Failures name the table, column, or key that differs. This is the layer that signs off the migration.
+
+**Soda Core data contracts** (`soda/contracts/`) are declarative YAML checks on one Snowflake dataset at a time: the payment, rental, film, and customer tables in RAW, and the three marts. They assert:
+- schema shape and row count (every contract)
+- required values and uniqueness (every contract)
+- valid values and ranges (every contract except `rental`)
+- one custom rule: on `mart_rental_returns`, a daily late fee is $1.00 per day late
+
+pytest runs every contract (MIG-009, ETL-008).
 
 ## Row-hash normalization
 
