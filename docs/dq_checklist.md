@@ -46,6 +46,7 @@ Rules learned in this project, each tied to where it happened (`D#` = defect num
 - **A recorded run must cover every requirement,** or a failing run can be stored as clean. (D26)
 - **Configuration you document must actually work when changed** (environment variables, names). (D27)
 - **Side effects are part of the test.** Sequences advance even in a rolled-back transaction. (D2)
+- **A harness must tell "didn't run" from "nothing failed".** Check exit codes, clear old results before each run, and confirm a fault actually changed the data; otherwise a crash or a no-op is scored as a pass or a miss. (D36-D38)
 
 ## Delivering SQL and tests
 

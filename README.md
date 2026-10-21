@@ -55,9 +55,9 @@ Rules are written in plain English in `requirements/requirements.yml`. Every dbt
 | dbt models, unit/data/singular tests | Claude Code | The human (business-rule decisions), model mutations, an independent Postgres re-implementation |
 | Fault injector and matrix | Claude Code | Predictions written down before each run, verified restores |
 | Requirements and business rules | Claude Code drafts | The human decides every judgement call (edge cases, attribution, rounding) |
-| Code review | Codex (a different model) on PR #1 | The human accepted 3 findings and kept 1 design choice |
+| Code review | Codex (a different model) on PRs #1 and #2 | The human accepted 8 findings and kept 1 design choice |
 
-Almost all code and SQL here is AI-generated. The project's point is proving it correct, and [AI_LOG.md](AI_LOG.md) records every defect found in AI output, with what caught it (34 so far).
+Almost all code and SQL here is AI-generated. The project's point is proving it correct, and [AI_LOG.md](AI_LOG.md) records every defect found in AI output, with what caught it (39 so far).
 
 ### Agents in the QA workflow
 
@@ -71,10 +71,10 @@ Four focused Claude Code subagents (`.claude/agents/`). Each one was evaluated b
 | `rule-reviewer` | Find the ambiguities in a draft business rule before it's built | Recall against 13 gaps settled in this project | 12.5/13 recall, 14/14 precision, every count exact; found SRC-005 |
 
 How the agents are kept honest:
-- **Read-only database access.** Agents query only through `triage.query`, `triage.check_pair`, and `triage.dbt_check`, as Postgres `dq_triage` and Snowflake `PAGILA_TRIAGE_SVC`. Writes were rejected on both, even with read-only mode forced off.
+- **Read-only database access.** Agents query only through `triage.query`, `triage.check_pair`, and `triage.dbt_check`, as Postgres `dq_triage` and Snowflake `PAGILA_TRIAGE_SVC`. Writes were rejected on both, even with read-only mode forced off. `triage.dbt_check` overlays only test files and always uses this repo's profile, so a proposal can't switch to a writable login.
 - **Proposals, not edits.** Authors write only to `proposals/<agent>/`. A human reviews the output and promotes what's good into the suite.
 - **Blind evaluation.** Workspaces are stripped of the existing tests and answers and checked for leaks; scores come from mutation and fault harnesses (`faults.dbt_mutations`, `faults.pair_matrix`, `faults.matrix`).
-- **One shared rule set.** Every agent follows [docs/dq_checklist.md](docs/dq_checklist.md), the traps behind the 34 defects in [AI_LOG.md](AI_LOG.md).
+- **One shared rule set.** Every agent follows [docs/dq_checklist.md](docs/dq_checklist.md), the traps behind the defects in [AI_LOG.md](AI_LOG.md).
 
 Other AI in the pipeline:
 - **AI-generated validation SQL:** written from requirement IDs and human-reviewed. 5 defects, one a latent `DATEDIFF` bug (`reports/ai_sql_review.md`).
