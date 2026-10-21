@@ -201,10 +201,16 @@ def apply(project: Path, mutation: ModelMutation) -> None:
     path.write_text(text.replace(mutation.old, mutation.new))
 
 
-def dbt(project: Path, *args: str) -> list[dict]:
-    """Run a dbt command on the mutation target; returns run_results entries."""
+def dbt(project: Path, *args: str) -> list[dict] | None:
+    """Run a dbt command on the mutation target; returns run_results entries.
+
+    Returns None when dbt didn't complete (exit code other than 0 or 1, or no results), so
+    a crashed run is never scored as "no test failed".
+    """
     target_path = project / "target"
-    subprocess.run(
+    results = target_path / "run_results.json"
+    results.unlink(missing_ok=True)  # the previous pass's results must not be read as this one's
+    done = subprocess.run(
         [
             sys.executable,
             "-m",
@@ -223,8 +229,9 @@ def dbt(project: Path, *args: str) -> list[dict]:
         capture_output=True,
         check=False,
     )
-    results = target_path / "run_results.json"
-    return json.loads(results.read_text())["results"] if results.exists() else []
+    if done.returncode not in (0, 1) or not results.exists():
+        return None
+    return json.loads(results.read_text())["results"] or None
 
 
 def node_name(unique_id: str) -> str:
@@ -245,8 +252,10 @@ def failures(results: list[dict], kind: str) -> list[str]:
 def evaluate(dbt_dir: Path, names: list[str]) -> tuple[list[dict], dict]:
     with tempfile.TemporaryDirectory() as tmp:
         baseline = dbt(copy_project(dbt_dir, Path(tmp) / "baseline"), "build")
+    if baseline is None:
+        raise SystemExit("baseline dbt build did not complete; fix that before mutating")
     base = {k: failures(baseline, k) for k in ("model", "unit_test", "test")}
-    if not baseline or any(base.values()):
+    if any(base.values()):
         raise SystemExit(f"baseline build is not clean: {base}; fix that before mutating")
 
     rows = []
@@ -256,18 +265,16 @@ def evaluate(dbt_dir: Path, names: list[str]) -> tuple[list[dict], dict]:
             apply(project, mutation)
             unit = dbt(project, "test", "--select", f"{mutation.model},test_type:unit")
             data = dbt(project, "build", "--select", mutation.model, "--exclude", "test_type:unit")
+        invalid = [name for name, res in (("unit", unit), ("data", data)) if res is None]
         row = {
             "mutation": mutation,
-            "unit": failures(unit, "unit_test") + failures(unit, "model"),
-            "data": failures(data, "test"),
-            "stillborn": failures(data, "model"),
+            "invalid": invalid,
+            "unit": failures(unit or [], "unit_test") + failures(unit or [], "model"),
+            "data": failures(data or [], "test"),
+            "stillborn": failures(data or [], "model"),
         }
         rows.append(row)
-        verdict = (
-            "stillborn"
-            if row["stillborn"]
-            else ("killed" if row["unit"] or row["data"] else "SURVIVED")
-        )
+        verdict = verdict_of(row)
         print(
             f"  {mutation.name:28} unit={len(row['unit'])} data={len(row['data'])} {verdict}",
             flush=True,
@@ -275,8 +282,16 @@ def evaluate(dbt_dir: Path, names: list[str]) -> tuple[list[dict], dict]:
     return rows, base
 
 
+def verdict_of(row: dict) -> str:
+    if row["invalid"]:
+        return f"invalid run ({', '.join(row['invalid'])} pass)"
+    if row["stillborn"]:
+        return "stillborn"
+    return "killed" if row["unit"] or row["data"] else "SURVIVED"
+
+
 def render(rows: list[dict], label: str, dbt_dir: Path) -> str:
-    valid = [r for r in rows if not r["stillborn"]]
+    valid = [r for r in rows if not r["stillborn"] and not r["invalid"]]
     killed = [r for r in valid if r["unit"] or r["data"]]
     by_unit = sum(bool(r["unit"]) for r in valid)
     by_data = sum(bool(r["data"]) for r in valid)
@@ -287,7 +302,8 @@ def render(rows: list[dict], label: str, dbt_dir: Path) -> str:
         f"faults.dbt_mutations` on `{dbt_dir}`.",
         "",
         f"**Kill score: {len(killed)}/{len(valid)}** mutations caught by at least one test "
-        f"(unit tests alone: {by_unit}, data tests alone: {by_data}).",
+        f"(unit tests alone: {by_unit}, data tests alone: {by_data}). Stillborn mutations and "
+        "invalid runs (dbt didn't complete) are not scored.",
         "",
         "Cells list the failing tests; `·` means none noticed.",
         "",
@@ -296,10 +312,9 @@ def render(rows: list[dict], label: str, dbt_dir: Path) -> str:
     ]
     for r in rows:
         m = r["mutation"]
-        verdict = (
-            "stillborn (didn't compile)"
-            if r["stillborn"]
-            else ("killed" if r["unit"] or r["data"] else "**SURVIVED**")
+        verdict = verdict_of(r)
+        verdict = {"stillborn": "stillborn (didn't compile)", "SURVIVED": "**SURVIVED**"}.get(
+            verdict, verdict
         )
         cell = lambda names: ", ".join(f"`{n}`" for n in names) or "·"  # noqa: E731
         lines.append(
