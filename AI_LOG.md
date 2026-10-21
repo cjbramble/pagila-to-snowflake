@@ -47,6 +47,12 @@ What AI (Claude Code) generated in this project, what was wrong with it, and wha
 | 37 | 7C | `src/faults/pair_matrix.py` | Checked the fingerprint only after restore, so a fault that changed nothing was scored as **MISSED** and counted in the denominator; `faults.matrix` already handled this | Codex review on PR #2 | Fingerprint after apply; no-ops are reported as not applied and not scored; control: a no-op fault next to `drop_rows` |
 | 38 | 7A | `src/faults/dbt_mutations.py` `dbt()` | Ignored dbt's exit code and reused `target/run_results.json`, so a crashed pass read the previous pass's results or none, and the mutation scored as SURVIVED (or as killed by stale failures) | Codex review on PR #2 | Results are deleted before each pass; exit code other than 0/1 or no results is an invalid run, not scored; control: a Jinja-crash mutation reported invalid; full re-score still 17/17 |
 | 39 | 7B-7D | `.claude/agents/` author agents | Hard-coded `/Users/chet/...` in every tool command, so the agents fail on any other checkout or clone | Codex review on PR #2 | Relative `uv run --env-file .env`, run from the repository root, as `dq-triage` already did |
+| 40 | 8 | `src/reconcile/signoff.py` first report | Printed "all made by the human" for the mapping decisions without counting them, and linked evidence as `../reports/x.md` from inside `reports/` | Reading the first generated report | Decisions are counted by status; links are relative to the report |
+| 41 | 4 | `tests/reconciliation/conftest.py` (Claude-written) | Its `pytest_collection_modifyitems` marked every collected item, not just that directory's, so all 164 tests were `target_db` and `-m "not target_db"` selected none. Latent until something filtered on the markers | Running the planned PR selection with Snowflake unreachable: 164 deselected | Marks only tests under its own directory; 29 run without Snowflake |
+| 42 | 8 | `.github/workflows/ci.yml` draft | Created the service container's superuser as `pagila`, but the Pagila dump assigns ownership to `postgres` (106 `OWNER TO postgres`), so the source load would fail in CI | Replica of the CI job: a fresh container loaded the same way | Superuser `postgres`, as in the local `.env`; replica loads 51,061 payments and passes 29/29 |
+| 43 | 8 | `src/reconcile/signoff.py` gate | Judged only requirement status, so a failing test with no requirement (e.g. in `tests/test_loader.py`) was listed in the report while the gate said GO and exited 0, the only pass/fail step in the full CI run | Codex review on PR #3 (P1) | New gate G5: every untraced pytest and dbt test passes; no waiver can cover them. Control: a planted failing untraced test gives G5 NOT MET, exit 1 |
+| 44 | 8 | `src/reconcile/signoff.py` G1 | A requirement whose only tests were skipped counted as "covered by a test that ran"; with a waiver it could pass G1 and G2 with nothing executed | Codex review on PR #3 | Skipped-only traces are uncovered; unit test with a waived, skipped-only requirement |
+| 45 | 8 | `.github/workflows/full-run.yml` | Uploaded `reports/migration_signoff.md` with `if: always()`, but that file is committed, so a run failing before the gate published the old GO report as its result | Codex review on PR #3 | The gate writes to the runner's temp dir and only that file is uploaded; a run that never reaches the gate uploads nothing |
 
 ## Phase 1: Source profiling
 
@@ -322,3 +328,30 @@ What AI (Claude Code) generated in this project, what was wrong with it, and wha
 - **The P1 was in the safety boundary itself.** `dbt_check` is how the dbt agent runs code against Snowflake "read-only", yet a proposal could pick its own profile. Read-only now rests on three things a proposal can't change: the repo's profile, a test-files-only whitelist, and no writable credentials in dbt's environment.
 - **Three were harness honesty bugs:** a crash or a no-op could be scored as a miss or a pass. They didn't change any recorded score: the full mutation re-score is still 17/17, and no fault in the catalog is a no-op.
 - **Proof:** a negative control for each fix (above), plus 4 unit tests in `tests/test_qa_tools.py`. Full suite: 161 passed.
+
+## Phase 8: Sign-off report and quality gate
+
+- **`python -m reconcile.signoff`** runs pytest, `dbt test`, and reads the latest `QA.LOAD_LOG` per table in one pass, then writes `reports/migration_signoff.md`: scope, run summary, per-requirement status, a traceability matrix (requirement → pytest functions and dbt tests → result), known issues, waivers, and a go/no-go recommendation. It exits 1 on NO-GO.
+- **Gate criteria (drafted by Claude, for the human to approve):**
+  - G1: every requirement is covered by a test that ran.
+  - G2: every requirement passes or has an approved, unexpired waiver.
+  - G3: every known source issue is accepted by a named human.
+  - G4: the run is on committed code.
+  - G5: every test that traces to no requirement passes (added after the PR #3 review, defect 43).
+- **Human decisions live in `requirements/signoff.yml`.** Every disposition starts as `pending` with a recommendation, the same pattern as the mapping decisions, so the gate can't say GO before a human has looked.
+- **Cross-checks:** 29 dbt tests match `dbt ls`; 122,209 rows match `INFORMATION_SCHEMA.TABLES` and the source's own counts.
+- **Negative control (prediction written first):** with `drop_rows` applied, the gate went NO-GO with exactly MIG-003/004/005/006 and ETL-001/002/003 failing. The ETL failures are dbt data tests comparing the built marts with staging over RAW. Payment was restored to 51,061 rows.
+- Unit tests for status, waivers, and the gate are in `tests/test_qa_tools.py`.
+
+## Phase 8: CI
+
+- **PR workflow** (`ci.yml`): ruff plus the 29 tests that need only Postgres, against the same `pgvector/pgvector:0.8.7-pg18-trixie` image as `docker-compose.yml`. Service containers start before checkout, so Pagila is loaded with the container's own `psql` (`ON_ERROR_STOP`, as the image's init does).
+- **Full run** (`full-run.yml`, manual): fresh source, load, `dbt build`, then the sign-off gate as the pass/fail step. The key comes from a secret and is written to the runner's temp dir, 0600, never inside the checkout; `SNOWFLAKE_HOME` points the connector there.
+- **Versions checked live, not recalled:** `actions/checkout` v7.0.1, `astral-sh/setup-uv` v10.2.0 (it publishes no floating major tag), `actions/upload-artifact` v7.0.1. All are pinned to commit SHAs; the newest releases under two weeks old were skipped.
+- **Verified before pushing, with only the CI environment** (empty HOME, so no `~/.snowflake`; only the variables the workflow sets):
+  - PR job: a fresh replica container, loaded the same way: 29 passed. An unloaded source fails 2 spec tests, so a broken load can't pass quietly.
+  - Full run: the credentials script, then load (16 tables), `dbt build` (38/38), sign-off **GO** with a clean tree.
+- **Found by the rehearsal:**
+  - Defect 41 and defect 42 (above).
+  - `.claude/settings.local.json` was kept out of git only by a global gitignore; the repo's `.gitignore` now covers it, so G4 doesn't depend on one machine.
+  - A draft comment claimed dbt needs every target's variables; `dbt parse` without the readonly key variable succeeded, so the placeholder was removed before commit.

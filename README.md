@@ -14,9 +14,19 @@ uv run --env-file .env python -m reconcile.record           # store a suite run 
 uv run --env-file .env python -m reconcile.summarize        # Cortex summary of its failures, fact-checked
 uv run --env-file .env python -m faults.dbt_mutations       # break dbt models 17 ways, score the dbt tests
 uv run --env-file .env python -m faults.pair_matrix DIR     # score a folder of paired SQL checks against the faults
+uv run --env-file .env python -m reconcile.signoff          # run everything, write reports/migration_signoff.md (exit 1 on NO-GO)
 ```
 
 Setup (Snowflake account, key pair, `.env`) is covered in `sql/snowflake_setup.sql` and `.env.example`.
+
+## CI
+
+| Workflow | Runs on | What it does | Needs |
+|---|---|---|---|
+| `.github/workflows/ci.yml` | every PR, pushes to `main` | ruff, then `pytest -m "not target_db"` (29 tests: mapping spec vs a live Pagila source, loader, row-hash, harness and gate unit tests, dbt traceability) against a PostgreSQL 18 + pgvector service container | nothing |
+| `.github/workflows/full-run.yml` | manual (`workflow_dispatch`) | fresh source → `migrate.load` → `dbt build` → `reconcile.signoff`; fails on NO-GO and keeps the sign-off report as an artifact | repo secrets `SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_PRIVATE_KEY` |
+
+Tests that need Snowflake are marked `target_db`. The full run overwrites `RAW`, `STAGING`, and `MARTS` and uses a few minutes of XS warehouse time.
 
 ## Reconciliation layers
 
@@ -55,9 +65,9 @@ Rules are written in plain English in `requirements/requirements.yml`. Every dbt
 | dbt models, unit/data/singular tests | Claude Code | The human (business-rule decisions), model mutations, an independent Postgres re-implementation |
 | Fault injector and matrix | Claude Code | Predictions written down before each run, verified restores |
 | Requirements and business rules | Claude Code drafts | The human decides every judgement call (edge cases, attribution, rounding) |
-| Code review | Codex (a different model) on PRs #1 and #2 | The human accepted 8 findings and kept 1 design choice |
+| Code review | Codex (a different model) on PRs #1, #2, and #3 | 11 findings fixed; the human kept 1 design choice |
 
-Almost all code and SQL here is AI-generated. The project's point is proving it correct, and [AI_LOG.md](AI_LOG.md) records every defect found in AI output, with what caught it (39 so far).
+Almost all code and SQL here is AI-generated. The project's point is proving it correct, and [AI_LOG.md](AI_LOG.md) records every defect found in AI output, with what caught it (45 so far).
 
 ### Agents in the QA workflow
 
