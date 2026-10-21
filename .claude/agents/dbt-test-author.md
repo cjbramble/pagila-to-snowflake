@@ -63,16 +63,16 @@ Never edit anything under `<workspace>/dbt/`.
 
 ## Verify before you report
 
-Check your proposals with the read-only tool. It parses the project with your files overlaid and runs every test against the real marts as a SELECT-only user:
+Check your proposals with the read-only tool, from the repository root (`<workspace>` may be elsewhere). It parses the project with your files overlaid and runs every test against the real marts as a SELECT-only user:
 
 ```
-uv run --project /Users/chet/dev-projects/snowflake-data-project --env-file /Users/chet/dev-projects/snowflake-data-project/.env python -m triage.dbt_check --dbt-dir <workspace>/dbt --proposals <workspace>/proposals/dbt-test-author
+uv run --env-file .env python -m triage.dbt_check --dbt-dir <workspace>/dbt --proposals <workspace>/proposals/dbt-test-author
 ```
 
 - **Iterate until every test passes.** The models are believed correct, so a failing test is either a wrong expectation or a real bug. If you think it's a real bug, say so with evidence instead of weakening the test.
 - **You may explore the data read-only:**
   ```
-  uv run --project /Users/chet/dev-projects/snowflake-data-project --env-file /Users/chet/dev-projects/snowflake-data-project/.env python -m triage.query sf "SELECT ..."
+  uv run --env-file .env python -m triage.query sf "SELECT ..."
   ```
 - **Never run `dbt run`, `dbt build`, the loader, or `faults.*`.**
 

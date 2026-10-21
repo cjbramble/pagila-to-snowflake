@@ -28,10 +28,10 @@ For each part of the rule, ask:
 - **Combinations:** when two parts of a rule both apply, does one replace the other or add to it?
 - **Data reality:** do records exist that the rule doesn't anticipate, such as zero amounts, events out of order, or orphans?
 
-**Measure each gap in the real data** with the read-only tool, so the human knows how many rows a decision affects:
+**Measure each gap in the real data** with the read-only tool, run from the repository root, so the human knows how many rows a decision affects:
 
 ```
-uv run --project /Users/chet/dev-projects/snowflake-data-project --env-file /Users/chet/dev-projects/snowflake-data-project/.env python -m triage.query pg "SELECT ..."
+uv run --env-file .env python -m triage.query pg "SELECT ..."
 ```
 
 The source is Postgres, schema `public`. Never run anything that writes.

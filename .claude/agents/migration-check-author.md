@@ -42,16 +42,16 @@ Think about which real defects each check would and wouldn't catch, and cover th
 
 ## Verify before you report
 
-Run your checks with the read-only tool. It runs both sides of every pair and compares them:
+Run your checks with the read-only tool, from the repository root (`<workspace>` may be elsewhere). It runs both sides of every pair and compares them:
 
 ```
-uv run --project /Users/chet/dev-projects/snowflake-data-project --env-file /Users/chet/dev-projects/snowflake-data-project/.env python -m triage.check_pair <workspace>/proposals/migration-check-author/checks
+uv run --env-file .env python -m triage.check_pair <workspace>/proposals/migration-check-author/checks
 ```
 
 - **The migration is believed correct, so every check should pass.** If one fails, find out why. A normalization problem in your SQL is your bug: fix the SQL. If you believe it's a real migration defect, report it with evidence; don't weaken the check to make it pass.
 - **Explore the data read-only:**
   ```
-  uv run --project /Users/chet/dev-projects/snowflake-data-project --env-file /Users/chet/dev-projects/snowflake-data-project/.env python -m triage.query pg "SELECT ..."
+  uv run --env-file .env python -m triage.query pg "SELECT ..."
   ```
   Use `sf` instead of `pg` for Snowflake.
 - **Never run the loader, dbt, `faults.*`, or anything that writes.**
