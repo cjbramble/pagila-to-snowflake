@@ -41,6 +41,7 @@ What AI (Claude Code) generated in this project, what was wrong with it, and wha
 | 31 | 7B | `dbt-test-author` proposals | Two "independent" recompute tests mirror the model in the same dialect (same joins, `CONVERT_TIMEZONE`/`DATE_TRUNC`; `TIMESTAMPADD` is a synonym of `DATEADD`), so a misread rule would be copied rather than caught. A replacement-fee consistency check is loose (`late_fee > 0`; the exact check exists in another test). Its report said 8 singular tests; it wrote 9 | Claude review | Logged; considered when deciding what to promote |
 | 32 | 7C | `migration-check-author` proposals | `COALESCE(MIN(x), '')` makes an all-NULL column look like an empty string in min/max (the adjacent `null_count` still tells them apart); single-row count files have no `ORDER BY` (harmless); never ran a negative control (it said so) | Claude review; fault matrix | Logged; low severity |
 | 33 | 4 | `src/reconcile/rowhash.py` and the hand-written payment pair (Claude-written) | Commented as "collision-free", but it joined `'1' || value` with only a separator: two different rows, (`'a'`, `'b␟1c'`) and (`'a␟1b'`, `'c'`), hashed identically (`c9480605…`) on both engines. Latent: no Pagila value contains `chr(31)` | `migration-check-author`'s length-prefixed design, then a counterexample run on both engines | Values encode as `1 || length || ':' || value`; generator and hand-written pair updated; checklist rule added |
+| 34 | 7D | `rule-reviewer` review | Finding 3 labels its two readings of "more than 2x overdue" confusingly and never counts the reading the rule literally states (194 rentals overdue by more than 2x), although that's one query; it raised the timestamp-vs-calendar late threshold but not the exactly-at-due boundary (2 rentals) | Claude scoring against the answer key | Logged; the agent itself said finding 3 was confusingly worded |
 
 ## Phase 1: Source profiling
 
@@ -289,3 +290,23 @@ What AI (Claude Code) generated in this project, what was wrong with it, and wha
     - The generator still matches the hand-written pair row for row.
     - Full suite: 157 passed.
   - **Fault matrix: still 12/12, as predicted, and the aggregate layer now also catches `trailing_whitespace`**, which only the row hash caught before.
+
+## Phase 7D: rule-reviewer blind evaluation
+
+- **Setup:**
+  - Agent `.claude/agents/rule-reviewer.md` (Sonnet) reviewed a naive, pre-decision draft of the late-fee, revenue, and lifetime-value rules (`proposals/rule-reviewer/input_rules.md`).
+  - Workspace: the draft, the mapping spec, and the source profile only. No requirements file. The checklist was left out because it was written from these decisions and would give away about 4 answers.
+  - The answer key (13 gaps the draft leaves open, with how each was settled and its real-data impact) was written and fingerprinted before the run (`proposals/rule-reviewer/answer_key.md`).
+- **Result:** 14 findings, each with a question, why it matters, evidence, and options.
+- **Recall: 12.5 / 13.** Every gap except one half:
+  - Raised: G1 rounding, G2 replace vs add, G3 never returned, G4 store attribution, G6 2x boundary, G7 time zone, G8 what 2x measures, G9 zero amounts, G10 customers with no payments, G11 payments before rental, G12 fan-out, G13 due-date arithmetic.
+  - Half credit on G5: it raised the late threshold (timestamp vs calendar date) but not the exactly-at-due boundary.
+- **Precision: 14 / 14** findings are real gaps (#13, money precision, is minor).
+- **Beyond the answer key:**
+  - **#11, the paying customer differs from the renting customer on 5 payments**, is a real source quirk not in the known source issues.
+  - #12, sparse vs dense store-months, was settled in ETL-002 but missing from my answer key, so the key was incomplete.
+  - #5: fees vs revenue.
+- **Evidence:** every number re-measured independently and exact, including 27,750 / 22,552 late (timestamp / calendar), 10,535 under 24 h, fee totals $30,244 / $42,496 / $57,788 (floor / round / ceil), 1,827 out over 2x, 25,466 customer-vs-inventory store, 324 month changes in New York time, and 5 payer ≠ renter.
+- **Recommendations:** they matched every decision the project actually made. Caveat: the project's original recommendations came from the same model family, so the agreement shows consistency, not independent proof the decisions were right.
+- **Compliance: pass.** Inputs unchanged, it wrote only `review.md`, 12 read-only queries, no writes, no access outside the workspace.
+- **Defect 34:** confusing labels in finding 3, the uncounted literal reading, and the missed exactly-at-due boundary.
