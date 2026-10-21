@@ -2,6 +2,8 @@
 
 Data QA automation for a database migration and its ETL. The system under test is deliberately small: the Pagila sample database migrated from PostgreSQL 18 to Snowflake, with three dbt business marts on top. It exists to be tested.
 
+**About Pagila.** Pagila is the PostgreSQL port of MySQL's Sakila sample database: a fictional DVD-rental business with films, actors, customers, stores, staff, rentals, and payments (16 tables, about 122,000 rows). It's used here because it's public and reproducible (vendored at a pinned commit; see [docker/pagila/SOURCE.md](docker/pagila/SOURCE.md)), and because it has the column types that make migrations go wrong: a partitioned table (payment, 55 partitions), enums, domains, arrays, `tsvector`, `bytea`, and pgvector embeddings.
+
 The QA work is the point:
 - requirement-traced reconciliation from source to target
 - data contracts and business-rule tests
