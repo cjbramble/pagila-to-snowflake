@@ -20,7 +20,11 @@ ETL_IDS = set(yaml.safe_load((ROOT / "requirements" / "requirements.yml").read_t
 def dbt_test_requirements(tmp_path: Path) -> dict[str, set[str]]:
     """{requirement ID: names of dbt tests that declare it}."""
     # dbt parse renders the profile but never connects, so placeholders are enough.
-    env = {"SNOWFLAKE_ACCOUNT": "parse-only", "SNOWFLAKE_PRIVATE_KEY_PATH": "parse-only"}
+    env = {
+        "SNOWFLAKE_ACCOUNT": "parse-only",
+        "SNOWFLAKE_PRIVATE_KEY_PATH": "parse-only",
+        "SNOWFLAKE_TRIAGE_PRIVATE_KEY_PATH": "parse-only",
+    }
     subprocess.run(
         [
             sys.executable,
