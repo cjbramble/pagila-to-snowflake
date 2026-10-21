@@ -256,3 +256,7 @@ What AI (Claude Code) generated in this project, what was wrong with it, and wha
   - Kept `matches_rules` because the human named it, even though it's same-dialect. Its header says so, and `tests/etl` is the cross-dialect check.
   - **Correction:** my recommendation both promoted "the rental recompute" and skipped "the two mirrored checks", although the rental recompute was one of those two. I flagged the contradiction rather than resolving it silently.
 - **Merged suite: 17/17 mutations caught, unit tests alone 17, data tests alone 13.** `dbt build` passes (PASS=39). Skipping the revenue mirror costs 2 data-test detections (`rev_local_month`, `rev_staff_attribution`); the unit tests still catch both.
+- **Follow-up (human decision): dropped `mart_rental_returns_matches_rules` too**, so both same-dialect mirror tests are now out.
+  - Re-scored: still **17/17**; unit tests alone 17, data tests alone 12.
+  - The drop cost one real-data detection, `rr_due_off_by_one`. Three unit tests still catch it.
+  - `dbt build` PASS=38.
