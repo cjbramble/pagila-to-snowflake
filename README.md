@@ -14,6 +14,7 @@ uv run --env-file .env python -m reconcile.record           # store a suite run 
 uv run --env-file .env python -m reconcile.summarize        # Cortex summary of its failures, fact-checked
 uv run --env-file .env python -m faults.dbt_mutations       # break dbt models 17 ways, score the dbt tests
 uv run --env-file .env python -m faults.pair_matrix DIR     # score a folder of paired SQL checks against the faults
+uv run --env-file .env python -m reconcile.signoff          # run everything, write reports/migration_signoff.md (exit 1 on NO-GO)
 ```
 
 Setup (Snowflake account, key pair, `.env`) is covered in `sql/snowflake_setup.sql` and `.env.example`.
@@ -57,7 +58,7 @@ Rules are written in plain English in `requirements/requirements.yml`. Every dbt
 | Requirements and business rules | Claude Code drafts | The human decides every judgement call (edge cases, attribution, rounding) |
 | Code review | Codex (a different model) on PRs #1 and #2 | The human accepted 8 findings and kept 1 design choice |
 
-Almost all code and SQL here is AI-generated. The project's point is proving it correct, and [AI_LOG.md](AI_LOG.md) records every defect found in AI output, with what caught it (39 so far).
+Almost all code and SQL here is AI-generated. The project's point is proving it correct, and [AI_LOG.md](AI_LOG.md) records every defect found in AI output, with what caught it (40 so far).
 
 ### Agents in the QA workflow
 

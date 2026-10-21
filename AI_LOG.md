@@ -47,6 +47,7 @@ What AI (Claude Code) generated in this project, what was wrong with it, and wha
 | 37 | 7C | `src/faults/pair_matrix.py` | Checked the fingerprint only after restore, so a fault that changed nothing was scored as **MISSED** and counted in the denominator; `faults.matrix` already handled this | Codex review on PR #2 | Fingerprint after apply; no-ops are reported as not applied and not scored; control: a no-op fault next to `drop_rows` |
 | 38 | 7A | `src/faults/dbt_mutations.py` `dbt()` | Ignored dbt's exit code and reused `target/run_results.json`, so a crashed pass read the previous pass's results or none, and the mutation scored as SURVIVED (or as killed by stale failures) | Codex review on PR #2 | Results are deleted before each pass; exit code other than 0/1 or no results is an invalid run, not scored; control: a Jinja-crash mutation reported invalid; full re-score still 17/17 |
 | 39 | 7B-7D | `.claude/agents/` author agents | Hard-coded `/Users/chet/...` in every tool command, so the agents fail on any other checkout or clone | Codex review on PR #2 | Relative `uv run --env-file .env`, run from the repository root, as `dq-triage` already did |
+| 40 | 8 | `src/reconcile/signoff.py` first report | Printed "all made by the human" for the mapping decisions without counting them, and linked evidence as `../reports/x.md` from inside `reports/` | Reading the first generated report | Decisions are counted by status; links are relative to the report |
 
 ## Phase 1: Source profiling
 
@@ -322,3 +323,16 @@ What AI (Claude Code) generated in this project, what was wrong with it, and wha
 - **The P1 was in the safety boundary itself.** `dbt_check` is how the dbt agent runs code against Snowflake "read-only", yet a proposal could pick its own profile. Read-only now rests on three things a proposal can't change: the repo's profile, a test-files-only whitelist, and no writable credentials in dbt's environment.
 - **Three were harness honesty bugs:** a crash or a no-op could be scored as a miss or a pass. They didn't change any recorded score: the full mutation re-score is still 17/17, and no fault in the catalog is a no-op.
 - **Proof:** a negative control for each fix (above), plus 4 unit tests in `tests/test_qa_tools.py`. Full suite: 161 passed.
+
+## Phase 8: Sign-off report and quality gate
+
+- **`python -m reconcile.signoff`** runs pytest, `dbt test`, and reads the latest `QA.LOAD_LOG` per table in one pass, then writes `reports/migration_signoff.md`: scope, run summary, per-requirement status, a traceability matrix (requirement → pytest functions and dbt tests → result), known issues, waivers, and a go/no-go recommendation. It exits 1 on NO-GO.
+- **Gate criteria (drafted by Claude, for the human to approve):**
+  - G1: every requirement is covered by a test that ran.
+  - G2: every requirement passes or has an approved, unexpired waiver.
+  - G3: every known source issue is accepted by a named human.
+  - G4: the run is on committed code.
+- **Human decisions live in `requirements/signoff.yml`.** Every disposition starts as `pending` with a recommendation, the same pattern as the mapping decisions, so the gate can't say GO before a human has looked.
+- **Cross-checks:** 29 dbt tests match `dbt ls`; 122,209 rows match `INFORMATION_SCHEMA.TABLES` and the source's own counts.
+- **Negative control (prediction written first):** with `drop_rows` applied, the gate went NO-GO with exactly MIG-003/004/005/006 and ETL-001/002/003 failing. The ETL failures are dbt data tests comparing the built marts with staging over RAW. Payment was restored to 51,061 rows.
+- Unit tests for status, waivers, and the gate are in `tests/test_qa_tools.py`.
