@@ -162,3 +162,8 @@ known_source_issues:
     title: Store managers belong to other stores
     detail: 499 of 500 stores have a manager_staff_id whose staff.store_id is a different
       store. store.manager_staff_id has no declared FK in the source; it has no orphans.
+  SRC-005:
+    title: Payments made by someone other than the renter
+    detail: 5 payments (payment_id 17206, 19518, 25162, 29163, 31834; 9.95 in total) are for
+      rentals by customer 182 but carry five different payer customer_ids. Migrated as-is; the
+      lifetime-value mart credits each payment to its payer. Found by the rule-reviewer agent.
