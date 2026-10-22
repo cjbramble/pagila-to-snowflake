@@ -160,8 +160,7 @@ decisions:
       exclude: Not migrated. Removes the credential from the target entirely.
     recommendation: migrate
     rationale: Values are Pagila demo SHA-1 hashes, and a migration must be complete unless
-      a requirement says otherwise. On a real program this needs a data-owner sign-off;
-      log it as a waiver either way.
+      a requirement says otherwise. On a real program this needs a data-owner sign-off.
     decision: migrate
 
 tables:

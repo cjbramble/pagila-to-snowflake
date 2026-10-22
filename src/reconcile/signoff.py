@@ -5,8 +5,7 @@ One run, so every result in the report comes from the same moment:
   - dbt test (unit and data tests on the built marts; nothing is built or changed)
   - the latest QA.LOAD_LOG entry per table
 The verdict depends only on test results: coverage, requirement status, and untraced tests.
-Human decisions come from requirements/signoff.yml: waivers count toward the verdict;
-known-issue dispositions are reported but don't affect it.
+Human review and approval happen outside this repo.
 
 The verdict, gates, requirement statuses, and every pytest and dbt result are also stored
 in the QA schema under one run ID, for the dashboard (dashboard/).
@@ -27,8 +26,6 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import yaml
-
 from migrate.mapping import load_spec
 from migrate.snowflake_conn import connect
 from reconcile.results import (
@@ -41,7 +38,6 @@ from reconcile.results import (
 from reconcile.store import insert, new_run_id, store_dbt, store_pytest
 
 KNOWN_ISSUES = REQUIREMENTS_FILE["known_source_issues"]
-SIGNOFF_FILE = ROOT / "requirements" / "signoff.yml"
 DEFAULT_REPORT = ROOT / "reports" / "migration_signoff.md"
 EVIDENCE_REPORTS = ["fault_matrix.md", "dbt_mutation_matrix.md"]
 
@@ -122,7 +118,6 @@ def record_run(
     go: bool,
     gates: list[tuple[str, str, bool, str]],
     statuses: dict[str, str],
-    waivers: dict[str, dict],
     pytest_results: list,
     dbt_results: list[dict],
 ) -> str:
@@ -139,7 +134,7 @@ def record_run(
             cur,
             "SIGNOFF_REQUIREMENTS",
             (
-                (run_id, r, REQUIREMENTS[r]["title"], REQUIREMENTS[r]["layer"], s, r in waivers)
+                (run_id, r, REQUIREMENTS[r]["title"], REQUIREMENTS[r]["layer"], s)
                 for r, s in statuses.items()
             ),
         )
@@ -147,14 +142,6 @@ def record_run(
         store_dbt(cur, run_id, started, dbt_results)
         insert(cur, "SIGNOFF_RUNS", [(run_id, started, sha, "GO" if go else "NO-GO")])
     return run_id
-
-
-def active_waiver(waivers: list[dict], req_id: str, today: dt.date) -> dict | None:
-    for w in waivers:
-        expires = dt.date.fromisoformat(str(w["expires"]))
-        if w["requirement"] == req_id and w.get("approved_by") and expires >= today:
-            return w
-    return None
 
 
 def one_line(message: str, limit: int = 300) -> str:
@@ -180,7 +167,7 @@ def gate(
     """(id, criterion, met, detail) for each gate criterion.
 
     untraced: tests that trace to no requirement and didn't pass, or that declare an
-    unknown requirement ID; no waiver can cover them.
+    unknown requirement ID.
     """
     uncovered = [r for r, t in traces.items() if all(o == "skipped" for o in t.outcomes())]
     failing = [r for r, s in statuses.items() if s in ("FAIL", "INCOMPLETE")]
@@ -193,7 +180,7 @@ def gate(
         ),
         (
             "G2",
-            "Every requirement passes, or has an approved, unexpired waiver",
+            "Every requirement passes",
             not failing,
             ", ".join(failing) or "no failing or incomplete requirements",
         ),
@@ -218,9 +205,7 @@ def render(
     loads: list[tuple],
     traces: dict[str, Trace],
     statuses: dict[str, str],
-    waivers: dict[str, dict],
     gates: list[tuple[str, str, bool, str]],
-    dispositions: dict,
 ) -> str:
     spec = load_spec()
     columns = [c for t in spec["tables"].values() for c in t["columns"].values()]
@@ -308,8 +293,7 @@ def render(
 
     for req_id, trace in traces.items():
         status = statuses[req_id]
-        shown = f"WAIVED ({status})" if req_id in waivers else status
-        shown = shown if shown == "PASS" else f"**{shown}**"
+        shown = status if status == "PASS" else f"**{status}**"
         lines.append(
             f"| {req_id} | {REQUIREMENTS[req_id]['title']} | {shown} | {cell(trace.pytest)} "
             f"| {cell(trace.dbt)} |"
@@ -329,25 +313,12 @@ def render(
         "",
         "## Known source issues",
         "",
-        "Source data-quality findings that migrate faithfully, with the human disposition from "
-        "`requirements/signoff.yml`. Dispositions are recorded here and don't affect the verdict.",
+        "Source data-quality findings that migrate faithfully (`requirements/requirements.yml`).",
         "",
-        "| Issue | Title | Disposition | Decided by |",
-        "|---|---|---|---|",
+        "| Issue | Title |",
+        "|---|---|",
+        *(f"| {src_id} | {issue['title']} |" for src_id, issue in KNOWN_ISSUES.items()),
     ]
-    for src_id, issue in KNOWN_ISSUES.items():
-        d = dispositions.get(src_id, {})
-        lines.append(
-            f"| {src_id} | {issue['title']} | {d.get('status', '**missing**')} "
-            f"| {d.get('decided_by') or '·'} |"
-        )
-
-    lines += ["", "## Waivers", ""]
-    lines += [
-        f"- {w['requirement']}: {w['reason']} (approved by {w['approved_by']}, "
-        f"expires {w['expires']})"
-        for w in waivers.values()
-    ] or ["None."]
 
     lines += [
         "",
@@ -367,8 +338,6 @@ def main() -> None:
     args = parser.parse_args()
 
     started = dt.datetime.now(dt.UTC)
-    signoff = yaml.safe_load(SIGNOFF_FILE.read_text())
-    dispositions = signoff.get("dispositions") or {}
     sha, dirty = git_state(args.report)
     commit = f"{sha}-dirty" if dirty else sha
 
@@ -391,20 +360,13 @@ def main() -> None:
             else:
                 unknown_ids.append(f"dbt {t['name']} (unknown {req_id})")
 
-    today = started.date()
     statuses = {r: requirement_status(t.outcomes()) for r, t in traces.items()}
-    waivers = {
-        r: w
-        for r, s in statuses.items()
-        if s != "PASS" and (w := active_waiver(signoff.get("waivers") or [], r, today))
-    }
-    effective = {r: ("PASS" if r in waivers else s) for r, s in statuses.items()}
     untraced = [r.test_id for r in pytest_results if not r.requirement and r.outcome != "passed"]
     untraced += [
         f"dbt {t['name']}" for t in dbt_results if not t["requirements"] and t["status"] != "passed"
     ]
     untraced += unknown_ids
-    gates = gate(effective, traces, untraced)
+    gates = gate(statuses, traces, untraced)
 
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(
@@ -417,9 +379,7 @@ def main() -> None:
             loads=loads,
             traces=traces,
             statuses=statuses,
-            waivers=waivers,
             gates=gates,
-            dispositions=dispositions,
         )
     )
     go = all(met for _, _, met, _ in gates)
@@ -429,7 +389,6 @@ def main() -> None:
         go=go,
         gates=gates,
         statuses=statuses,
-        waivers=waivers,
         pytest_results=pytest_results,
         dbt_results=dbt_results,
     )

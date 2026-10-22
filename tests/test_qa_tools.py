@@ -74,15 +74,6 @@ def test_signoff_requirement_status():
     assert status([]) == "INCOMPLETE"
 
 
-def test_signoff_waiver_needs_approver_and_must_not_be_expired():
-    today = dt.date(2026, 10, 21)
-    ok = {"requirement": "MIG-004", "approved_by": "Data owner", "expires": "2026-10-21"}
-    assert signoff.active_waiver([ok], "MIG-004", today) == ok
-    assert signoff.active_waiver([ok], "MIG-003", today) is None
-    assert signoff.active_waiver([ok | {"approved_by": None}], "MIG-004", today) is None
-    assert signoff.active_waiver([ok | {"expires": "2026-10-20"}], "MIG-004", today) is None
-
-
 def test_signoff_gate_is_no_go_on_any_unmet_criterion():
     traces = {"MIG-001": signoff.Trace(), "MIG-002": signoff.Trace()}
     traces["MIG-001"].pytest["t"].append("passed")
@@ -97,7 +88,7 @@ def test_signoff_gate_is_no_go_on_any_unmet_criterion():
 def test_signoff_g1_needs_a_test_that_actually_ran():
     traces = {"MIG-001": signoff.Trace()}
     traces["MIG-001"].pytest["t"].append("skipped")
-    # Even with the requirement waived to PASS, a skipped-only trace is uncovered.
+    # Even if the requirement's status were PASS, a skipped-only trace is uncovered.
     gates = signoff.gate({"MIG-001": "PASS"}, traces, [])
     assert [g for g, _, ok, _ in gates if not ok] == ["G1"]
 
@@ -239,7 +230,6 @@ def test_signoff_writes_the_run_header_last(monkeypatch):
         go=True,
         gates=[("G1", "c", True, "d")],
         statuses={req_id: "PASS"},
-        waivers={},
         pytest_results=[],
         dbt_results=[],
     )

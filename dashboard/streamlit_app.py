@@ -82,7 +82,7 @@ in_run = f"WHERE RUN_ID = '{run_id}'"  # run_id comes from SIGNOFF_RUNS, not use
 
 gates = query(f"SELECT GATE, CRITERION, MET, DETAIL FROM {QA}.SIGNOFF_GATES {in_run} ORDER BY GATE")
 reqs = query(
-    f"SELECT REQUIREMENT, TITLE, LAYER, STATUS, WAIVED FROM {QA}.SIGNOFF_REQUIREMENTS {in_run} "
+    f"SELECT REQUIREMENT, TITLE, LAYER, STATUS FROM {QA}.SIGNOFF_REQUIREMENTS {in_run} "
     "ORDER BY REQUIREMENT"
 )
 pytest = query(
