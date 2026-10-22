@@ -6,6 +6,9 @@ One run, so every result in the report comes from the same moment:
   - the latest QA.LOAD_LOG entry per table
 Human decisions (known-issue dispositions, waivers) come from requirements/signoff.yml.
 
+The verdict, gates, requirement statuses, and every pytest and dbt result are also stored
+in the QA schema under one run ID, for the dashboard (dashboard/).
+
 Exits 0 on GO and 1 on NO-GO, so CI can use it as the gate.
 
 Usage: python -m reconcile.signoff [--report PATH]
@@ -33,6 +36,7 @@ from reconcile.results import (
     requirement_status,
     run_pytest,
 )
+from reconcile.store import insert, new_run_id, store_dbt, store_pytest
 
 KNOWN_ISSUES = REQUIREMENTS_FILE["known_source_issues"]
 SIGNOFF_FILE = ROOT / "requirements" / "signoff.yml"
@@ -107,6 +111,36 @@ def run_dbt_tests() -> list[dict]:
 def latest_loads() -> list[tuple]:
     with connect() as sf:
         return sf.cursor().execute(LATEST_LOADS).fetchall()
+
+
+def record_run(
+    *,
+    started: dt.datetime,
+    sha: str,
+    go: bool,
+    gates: list[tuple[str, str, bool, str]],
+    statuses: dict[str, str],
+    waivers: dict[str, dict],
+    pytest_results: list,
+    dbt_results: list[dict],
+) -> str:
+    """Store this run in the QA schema; returns its run ID."""
+    run_id = new_run_id()
+    with connect() as sf:
+        cur = sf.cursor()
+        insert(cur, "SIGNOFF_RUNS", [(run_id, started, sha, "GO" if go else "NO-GO")])
+        insert(cur, "SIGNOFF_GATES", [(run_id, *g) for g in gates])
+        insert(
+            cur,
+            "SIGNOFF_REQUIREMENTS",
+            (
+                (run_id, r, REQUIREMENTS[r]["title"], REQUIREMENTS[r]["layer"], s, r in waivers)
+                for r, s in statuses.items()
+            ),
+        )
+        store_pytest(cur, run_id, started, pytest_results)
+        store_dbt(cur, run_id, started, dbt_results)
+    return run_id
 
 
 def active_waiver(waivers: list[dict], req_id: str, today: dt.date) -> dict | None:
@@ -397,9 +431,19 @@ def main() -> None:
         )
     )
     go = all(met for _, _, met, _ in gates)
+    run_id = record_run(
+        started=started,
+        sha=sha,
+        go=go,
+        gates=gates,
+        statuses=statuses,
+        waivers=waivers,
+        pytest_results=pytest_results,
+        dbt_results=dbt_results,
+    )
     for g, _, met, detail in gates:
         print(f"  {g} {'met' if met else 'NOT MET'}: {detail}")
-    print(f"{'GO' if go else 'NO-GO'}: wrote {args.report}")
+    print(f"{'GO' if go else 'NO-GO'}: wrote {args.report}, stored run {run_id} in QA")
     sys.exit(0 if go else 1)
 
 

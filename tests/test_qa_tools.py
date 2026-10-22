@@ -7,7 +7,7 @@ import pytest
 
 from faults import dbt_mutations, inject, pair_matrix
 from faults.catalog import Fault
-from reconcile import signoff
+from reconcile import signoff, store
 from triage import check_pair, dbt_check, query
 
 
@@ -204,3 +204,34 @@ def test_signoff_g5_fails_on_unknown_dbt_requirement():
     unknown = ["dbt assert_x (unknown ETL-099)"]
     gates = signoff.gate({"MIG-001": "PASS"}, traces, accepted, [], unknown)
     assert [g for g, _, ok, _ in gates if not ok] == ["G5"]
+
+
+class FakeCursor:
+    def __init__(self):
+        self.statements, self.rows = [], []
+
+    def execute(self, sql):
+        self.statements.append(sql)
+
+    def executemany(self, sql, rows):
+        self.statements.append(sql)
+        self.rows += rows
+
+
+def test_store_dbt_writes_one_row_per_requirement():
+    tests = [
+        {
+            "name": "t1",
+            "kind": "unit",
+            "requirements": ["ETL-001", "ETL-002"],
+            "status": "passed",
+            "message": "",
+        },
+        {"name": "t2", "kind": "data", "requirements": [], "status": "fail", "message": "x" * 5000},
+    ]
+    cur = FakeCursor()
+    store.store_dbt(cur, "run", dt.datetime(2026, 10, 21, tzinfo=dt.UTC), tests)
+    assert cur.statements[0].startswith("CREATE TABLE IF NOT EXISTS PAGILA_MIG.QA.DBT_TEST_RESULTS")
+    assert [(r[2], r[4]) for r in cur.rows] == [("t1", "ETL-001"), ("t1", "ETL-002"), ("t2", None)]
+    assert len(cur.rows[2][6]) == store.MAX_MESSAGE
+    assert all(len(r) == store.TABLES["DBT_TEST_RESULTS"].count(",") + 1 for r in cur.rows)
