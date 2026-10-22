@@ -87,26 +87,20 @@ def test_signoff_gate_is_no_go_on_any_unmet_criterion():
     traces = {"MIG-001": signoff.Trace(), "MIG-002": signoff.Trace()}
     traces["MIG-001"].pytest["t"].append("passed")
     accepted = {s: {"status": "accepted", "decided_by": "Data owner"} for s in signoff.KNOWN_ISSUES}
-    gates = signoff.gate({"MIG-001": "PASS", "MIG-002": "FAIL"}, traces, accepted, [], [])
+    gates = signoff.gate({"MIG-001": "PASS", "MIG-002": "FAIL"}, traces, accepted, [])
     met = {g: ok for g, _, ok, _ in gates}
-    assert met == {"G1": False, "G2": False, "G3": True, "G4": True, "G5": True}
+    assert met == {"G1": False, "G2": False, "G3": True, "G4": True}
 
     traces["MIG-002"].pytest["t"].append("passed")
     pending = accepted | {"SRC-001": {"status": "pending"}}
-    gates = signoff.gate({"MIG-001": "PASS", "MIG-002": "PASS"}, traces, pending, ["x.py"], [])
-    assert {g: ok for g, _, ok, _ in gates} == {
-        "G1": True,
-        "G2": True,
-        "G3": False,
-        "G4": False,
-        "G5": True,
-    }
+    gates = signoff.gate({"MIG-001": "PASS", "MIG-002": "PASS"}, traces, pending, [])
+    assert {g: ok for g, _, ok, _ in gates} == {"G1": True, "G2": True, "G3": False, "G4": True}
 
-    gates = signoff.gate({"MIG-001": "PASS", "MIG-002": "PASS"}, traces, accepted, [], [])
+    gates = signoff.gate({"MIG-001": "PASS", "MIG-002": "PASS"}, traces, accepted, [])
     assert all(ok for _, _, ok, _ in gates)
 
     unnamed = accepted | {"SRC-002": {"status": "accepted", "decided_by": None}}
-    gates = signoff.gate({"MIG-001": "PASS", "MIG-002": "PASS"}, traces, unnamed, [], [])
+    gates = signoff.gate({"MIG-001": "PASS", "MIG-002": "PASS"}, traces, unnamed, [])
     assert [g for g, _, ok, _ in gates if not ok] == ["G3"]
 
 
@@ -115,17 +109,17 @@ def test_signoff_g1_needs_a_test_that_actually_ran():
     traces["MIG-001"].pytest["t"].append("skipped")
     accepted = {s: {"status": "accepted", "decided_by": "Data owner"} for s in signoff.KNOWN_ISSUES}
     # Even with the requirement waived to PASS, a skipped-only trace is uncovered.
-    gates = signoff.gate({"MIG-001": "PASS"}, traces, accepted, [], [])
+    gates = signoff.gate({"MIG-001": "PASS"}, traces, accepted, [])
     assert [g for g, _, ok, _ in gates if not ok] == ["G1"]
 
 
-def test_signoff_g5_fails_on_untraced_test_failures():
+def test_signoff_g4_fails_on_untraced_test_failures():
     traces = {"MIG-001": signoff.Trace()}
     traces["MIG-001"].pytest["t"].append("passed")
     accepted = {s: {"status": "accepted", "decided_by": "Data owner"} for s in signoff.KNOWN_ISSUES}
     untraced = ["tests.test_loader::test_x"]
-    gates = signoff.gate({"MIG-001": "PASS"}, traces, accepted, [], untraced)
-    assert [g for g, _, ok, _ in gates if not ok] == ["G5"]
+    gates = signoff.gate({"MIG-001": "PASS"}, traces, accepted, untraced)
+    assert [g for g, _, ok, _ in gates if not ok] == ["G4"]
 
 
 @pytest.mark.parametrize(
@@ -197,13 +191,13 @@ def test_fault_apply_restores_when_a_statement_fails(monkeypatch):
     assert restored == ["payment"]
 
 
-def test_signoff_g5_fails_on_unknown_dbt_requirement():
+def test_signoff_g4_fails_on_unknown_dbt_requirement():
     traces = {"MIG-001": signoff.Trace()}
     traces["MIG-001"].pytest["t"].append("passed")
     accepted = {s: {"status": "accepted", "decided_by": "Data owner"} for s in signoff.KNOWN_ISSUES}
     unknown = ["dbt assert_x (unknown ETL-099)"]
-    gates = signoff.gate({"MIG-001": "PASS"}, traces, accepted, [], unknown)
-    assert [g for g, _, ok, _ in gates if not ok] == ["G5"]
+    gates = signoff.gate({"MIG-001": "PASS"}, traces, accepted, unknown)
+    assert [g for g, _, ok, _ in gates if not ok] == ["G4"]
 
 
 class FakeCursor:

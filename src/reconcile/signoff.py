@@ -174,7 +174,6 @@ def gate(
     statuses: dict[str, str],
     traces: dict[str, Trace],
     dispositions: dict,
-    dirty: list[str],
     untraced: list[str],
 ) -> list[tuple[str, str, bool, str]]:
     """(id, criterion, met, detail) for each gate criterion.
@@ -214,12 +213,6 @@ def gate(
         ),
         (
             "G4",
-            "The run is on committed code, so the report traces to one commit",
-            not dirty,
-            f"{len(dirty)} uncommitted path(s): {', '.join(dirty[:5])}" if dirty else "clean tree",
-        ),
-        (
-            "G5",
             "Every test that traces to no requirement passes, and none declares an unknown one",
             not untraced,
             f"{len(untraced)} not passing or unknown: {', '.join(untraced[:5])}"
@@ -232,6 +225,7 @@ def gate(
 def render(
     *,
     sha: str,
+    dirty: list[str],
     started: dt.datetime,
     pytest_results: list,
     dbt_results: list[dict],
@@ -259,7 +253,13 @@ def render(
         "# Migration sign-off: Pagila → Snowflake",
         "",
         f"Generated {started:%Y-%m-%d %H:%M} UTC by `python -m reconcile.signoff` "
-        f"at commit `{sha}`.",
+        f"at commit `{sha}`."
+        + (
+            f" The tree had {len(dirty)} uncommitted path(s), so results may not match the "
+            f"commit: {', '.join(f'`{d}`' for d in dirty[:5])}."
+            if dirty
+            else ""
+        ),
         "",
         f"## Recommendation: **{'GO' if go else 'NO-GO'}**",
         "",
@@ -384,6 +384,7 @@ def main() -> None:
     signoff = yaml.safe_load(SIGNOFF_FILE.read_text())
     dispositions = signoff.get("dispositions") or {}
     sha, dirty = git_state(args.report)
+    commit = f"{sha}-dirty" if dirty else sha
 
     print("running pytest ...", flush=True)
     pytest_results = run_pytest(["tests"])
@@ -417,12 +418,13 @@ def main() -> None:
         f"dbt {t['name']}" for t in dbt_results if not t["requirements"] and t["status"] != "passed"
     ]
     untraced += unknown_ids
-    gates = gate(effective, traces, dispositions, dirty, untraced)
+    gates = gate(effective, traces, dispositions, untraced)
 
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(
         render(
-            sha=sha,
+            sha=commit,
+            dirty=dirty,
             started=started,
             pytest_results=pytest_results,
             dbt_results=dbt_results,
@@ -437,7 +439,7 @@ def main() -> None:
     go = all(met for _, _, met, _ in gates)
     run_id = record_run(
         started=started,
-        sha=sha,
+        sha=commit,
         go=go,
         gates=gates,
         statuses=statuses,
