@@ -124,11 +124,14 @@ def record_run(
     pytest_results: list,
     dbt_results: list[dict],
 ) -> str:
-    """Store this run in the QA schema; returns its run ID."""
+    """Store this run in the QA schema; returns its run ID.
+
+    SIGNOFF_RUNS is written last: each insert commits on its own, and the dashboard lists only
+    runs found there, so a run never shows up with its details missing.
+    """
     run_id = new_run_id()
     with connect() as sf:
         cur = sf.cursor()
-        insert(cur, "SIGNOFF_RUNS", [(run_id, started, sha, "GO" if go else "NO-GO")])
         insert(cur, "SIGNOFF_GATES", [(run_id, *g) for g in gates])
         insert(
             cur,
@@ -140,6 +143,7 @@ def record_run(
         )
         store_pytest(cur, run_id, started, pytest_results)
         store_dbt(cur, run_id, started, dbt_results)
+        insert(cur, "SIGNOFF_RUNS", [(run_id, started, sha, "GO" if go else "NO-GO")])
     return run_id
 
 

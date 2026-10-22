@@ -147,15 +147,16 @@ with reqs_tab:
     st.dataframe(styled(table, "STATUS"), hide_index=True, width="stretch")
 
 with failures_tab:
-    failed_pytest = pytest[pytest.OUTCOME.isin(["failed", "error"])]
+    # Skipped counts too: the sign-off treats a skipped test as INCOMPLETE.
+    failed_pytest = pytest[pytest.OUTCOME != "passed"]
     failed_dbt = dbt[dbt.STATUS != "passed"]
     if failed_pytest.empty and failed_dbt.empty:
-        st.success("No failing tests in this run.")
+        st.success("Every test passed in this run.")
     if not failed_pytest.empty:
-        st.subheader(f"pytest ({failed_pytest.TEST_ID.nunique()} failing)")
+        st.subheader(f"pytest ({failed_pytest.TEST_ID.nunique()} not passing)")
         st.dataframe(styled(failed_pytest, "OUTCOME"), hide_index=True, width="stretch")
     if not failed_dbt.empty:
-        st.subheader(f"dbt ({failed_dbt.TEST_NAME.nunique()} failing)")
+        st.subheader(f"dbt ({failed_dbt.TEST_NAME.nunique()} not passing)")
         st.dataframe(styled(failed_dbt, "STATUS"), hide_index=True, width="stretch")
 
 with loads_tab:
@@ -167,13 +168,23 @@ with history_tab:
     st.subheader("Sign-off runs")
     st.dataframe(styled(runs, "VERDICT"), hide_index=True, width="stretch")
 
-    st.subheader("Failing tests per recorded run")
-    st.caption("Includes `reconcile.record` runs, which have no sign-off verdict.")
-    history = query(
-        f"""SELECT RUN_ID, {utc("RECORDED_AT")},
-            COUNT(DISTINCT TEST_ID) AS TESTS,
-            COUNT(DISTINCT IFF(OUTCOME IN ('failed', 'error'), TEST_ID, NULL)) AS FAILING
-        FROM {QA}.RECON_RESULTS GROUP BY RUN_ID, RECORDED_AT ORDER BY RUN_ID"""
+    st.subheader("Tests not passing per recorded run")
+    st.caption(
+        "pytest and dbt tests. Includes `reconcile.record` runs, which run pytest only and have "
+        "no sign-off verdict."
     )
-    st.bar_chart(history.set_index("RUN_ID")[["FAILING"]])
+    history = query(
+        f"""WITH TESTS AS (
+            SELECT RUN_ID, RECORDED_AT, 'pytest ' || TEST_ID AS TEST, OUTCOME = 'passed' AS OK
+            FROM {QA}.RECON_RESULTS
+            UNION ALL
+            SELECT RUN_ID, RECORDED_AT, 'dbt ' || TEST_NAME, STATUS = 'passed'
+            FROM {QA}.DBT_TEST_RESULTS
+        )
+        SELECT RUN_ID, {utc("RECORDED_AT")},
+            COUNT(DISTINCT TEST) AS TESTS,
+            COUNT(DISTINCT IFF(OK, NULL, TEST)) AS NOT_PASSING
+        FROM TESTS GROUP BY RUN_ID, RECORDED_AT ORDER BY RUN_ID"""
+    )
+    st.bar_chart(history.set_index("RUN_ID")[["NOT_PASSING"]])
     st.dataframe(history, hide_index=True, width="stretch")

@@ -235,3 +235,33 @@ def test_store_dbt_writes_one_row_per_requirement():
     assert [(r[2], r[4]) for r in cur.rows] == [("t1", "ETL-001"), ("t1", "ETL-002"), ("t2", None)]
     assert len(cur.rows[2][6]) == store.MAX_MESSAGE
     assert all(len(r) == store.TABLES["DBT_TEST_RESULTS"].count(",") + 1 for r in cur.rows)
+
+
+def test_signoff_writes_the_run_header_last(monkeypatch):
+    cur = FakeCursor()
+
+    class Conn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def cursor(self):
+            return cur
+
+    monkeypatch.setattr(signoff, "connect", Conn)
+    req_id = next(iter(signoff.REQUIREMENTS))
+    signoff.record_run(
+        started=dt.datetime(2026, 10, 21, tzinfo=dt.UTC),
+        sha="abc1234",
+        go=True,
+        gates=[("G1", "c", True, "d")],
+        statuses={req_id: "PASS"},
+        waivers={},
+        pytest_results=[],
+        dbt_results=[],
+    )
+    inserts = [s for s in cur.statements if s.startswith("INSERT")]
+    assert "SIGNOFF_RUNS" in inserts[-1]
+    assert cur.rows[-1][2:] == ("abc1234", "GO")

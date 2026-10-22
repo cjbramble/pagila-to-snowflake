@@ -35,6 +35,8 @@ def main() -> None:
             QUERY_WAREHOUSE = {WAREHOUSE}
             TITLE = 'Pagila validation'"""
         )
+        # A new or replaced app isn't live until a version is published.
+        cur.execute(f"ALTER STREAMLIT {APP} ADD LIVE VERSION FROM LAST")
         org, account = cur.execute(
             "SELECT CURRENT_ORGANIZATION_NAME(), CURRENT_ACCOUNT_NAME()"
         ).fetchone()
