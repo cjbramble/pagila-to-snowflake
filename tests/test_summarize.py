@@ -35,3 +35,14 @@ def test_numbers_must_appear_in_the_failures():
     wrong = "MIG-003 and MIG-005 failed: payment is missing 5 rows."
     assert fact_check(accurate, FAILURES, TABLES)["invented_numbers"] == []
     assert fact_check(wrong, FAILURES, TABLES)["invented_numbers"] == ["5"]
+
+
+def test_thousands_separators_are_not_split():
+    summary = "MIG-003 and MIG-005 failed: payment has 51,058 rows instead of 51,061."
+    assert fact_check(summary, FAILURES, TABLES)["invented_numbers"] == []
+
+
+def test_table_inside_a_column_name_is_not_a_mention():
+    failures = [("MIG-007", "tests.x::test_no_orphans[payment.rental_id]", "orphaned 1 value")]
+    summary = "MIG-007 failed: the rental table has orphans."
+    assert fact_check(summary, failures, TABLES)["invented_tables"] == ["rental"]
