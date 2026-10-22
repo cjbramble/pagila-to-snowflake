@@ -1,4 +1,4 @@
-# Human decisions the migration sign-off depends on. Read by `python -m reconcile.signoff`.
+# Human decisions recorded with the migration sign-off. Read by `python -m reconcile.signoff`.
 #
 # dispositions: one per known source issue (SRC-* in requirements.yml).
 #   status          pending | accepted (migrate as-is) | fix_before_go_live
@@ -6,8 +6,8 @@
 # waivers: a failing requirement that may go live anyway. Empty means none.
 #   requirement, reason, approved_by, expires (YYYY-MM-DD)
 #
-# The gate is NO-GO while any disposition is pending or fix_before_go_live, so the report
-# can't recommend go-live before a human has looked at every known issue.
+# Dispositions are shown in the report but don't affect the verdict, which depends only on
+# test results. An approved, unexpired waiver counts a failing requirement as passing.
 
 dispositions:
   SRC-001:

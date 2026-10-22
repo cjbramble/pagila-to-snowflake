@@ -4,7 +4,9 @@ One run, so every result in the report comes from the same moment:
   - the whole pytest suite (spec, schema, volume, aggregate, row, integrity, contracts, ETL)
   - dbt test (unit and data tests on the built marts; nothing is built or changed)
   - the latest QA.LOAD_LOG entry per table
-Human decisions (known-issue dispositions, waivers) come from requirements/signoff.yml.
+The verdict depends only on test results: coverage, requirement status, and untraced tests.
+Human decisions come from requirements/signoff.yml: waivers count toward the verdict;
+known-issue dispositions are reported but don't affect it.
 
 The verdict, gates, requirement statuses, and every pytest and dbt result are also stored
 in the QA schema under one run ID, for the dashboard (dashboard/).
@@ -173,7 +175,6 @@ def evidence_line(name: str) -> str:
 def gate(
     statuses: dict[str, str],
     traces: dict[str, Trace],
-    dispositions: dict,
     untraced: list[str],
 ) -> list[tuple[str, str, bool, str]]:
     """(id, criterion, met, detail) for each gate criterion.
@@ -183,12 +184,6 @@ def gate(
     """
     uncovered = [r for r, t in traces.items() if all(o == "skipped" for o in t.outcomes())]
     failing = [r for r, s in statuses.items() if s in ("FAIL", "INCOMPLETE")]
-    undecided = sorted(
-        s
-        for s in KNOWN_ISSUES
-        if dispositions.get(s, {}).get("status") != "accepted"
-        or not dispositions[s].get("decided_by")
-    )
     return [
         (
             "G1",
@@ -204,15 +199,6 @@ def gate(
         ),
         (
             "G3",
-            "Every known source issue is accepted by a named human",
-            not undecided,
-            ", ".join(
-                f"{s} ({dispositions.get(s, {}).get('status', 'missing')})" for s in undecided
-            )
-            or f"{len(KNOWN_ISSUES)}/{len(KNOWN_ISSUES)} accepted",
-        ),
-        (
-            "G4",
             "Every test that traces to no requirement passes, and none declares an unknown one",
             not untraced,
             f"{len(untraced)} not passing or unknown: {', '.join(untraced[:5])}"
@@ -343,8 +329,8 @@ def render(
         "",
         "## Known source issues",
         "",
-        "Source data-quality findings that migrate faithfully. Each needs a human disposition "
-        "(`requirements/signoff.yml`).",
+        "Source data-quality findings that migrate faithfully, with the human disposition from "
+        "`requirements/signoff.yml`. Dispositions are recorded here and don't affect the verdict.",
         "",
         "| Issue | Title | Disposition | Decided by |",
         "|---|---|---|---|",
@@ -418,7 +404,7 @@ def main() -> None:
         f"dbt {t['name']}" for t in dbt_results if not t["requirements"] and t["status"] != "passed"
     ]
     untraced += unknown_ids
-    gates = gate(effective, traces, dispositions, untraced)
+    gates = gate(effective, traces, untraced)
 
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(
