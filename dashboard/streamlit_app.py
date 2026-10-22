@@ -140,7 +140,10 @@ with reqs_tab:
         ],
         axis=1,
     )
-    table = reqs.join(tests_per_req, on="REQUIREMENT").fillna({"PYTEST_TESTS": 0, "DBT_TESTS": 0})
+    counts = {"PYTEST_TESTS": 0, "DBT_TESTS": 0}
+    table = (
+        reqs.join(tests_per_req, on="REQUIREMENT").fillna(counts).astype(dict.fromkeys(counts, int))
+    )
     layers = st.multiselect("Layer", sorted(reqs.LAYER.dropna().unique()))
     if layers:
         table = table[table.LAYER.isin(layers)]
