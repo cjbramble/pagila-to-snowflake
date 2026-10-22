@@ -1,5 +1,4 @@
--- Written by the dbt-test-author agent in a blind run (proposals/dbt-test-author/);
--- promoted after human review.
+-- Written by the dbt-test-author agent in a blind run; promoted after human review.
 {{ config(meta={'requirement': 'ETL-003'}) }}
 -- Per-customer recompute from raw tables via correlated scalar subqueries (different
 -- shape from the mart's join). Also covers: one row per customer, total revenue equals
