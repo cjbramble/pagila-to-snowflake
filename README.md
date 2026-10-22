@@ -66,6 +66,38 @@ Source-to-target checks are pytest (`tests/reconciliation/`), contracts are Soda
 
 Each sign-off run is also stored in Snowflake's `QA` schema, where a Streamlit in Snowflake dashboard ([dashboard/](dashboard/)) shows the verdict, gate, requirement status by layer, failures, loads, and run history.
 
+### Demo: break the migration, then fix it
+
+Five faults injected into the loaded `RAW` tables at once, one per table, then restored from their zero-copy clones. The sign-off ran before and after.
+
+| Fault | Table | Defect |
+|---|---|---|
+| `drop_rows` | payment | 3 payments silently not loaded |
+| `duplicate_rows` | rental | 2 rentals loaded twice, as by a retried batch |
+| `drop_check_constraint` | film | the rating CHECK constraint missing from the target |
+| `null_out_column` | customer | email lost for 5 customers |
+| `tiny_vector_drift` | film_embedding | one embedding element drifted by 1e-7 |
+
+| Faults injected: NO-GO | Faults restored: GO |
+|---|---|
+| ![Dashboard with faults injected: NO-GO, 6 of 17 requirements passing](docs/images/dashboard_nogo_overview.png) | ![Dashboard after restoring: GO, 17 of 17 requirements passing](docs/images/dashboard_go_overview.png) |
+| ![Requirements by layer with faults: failures in every layer except spec](docs/images/dashboard_nogo_requirements.png) | ![Requirements by layer after restoring: all passing](docs/images/dashboard_go_requirements.png) |
+
+The Failures tab names each check that caught a fault:
+
+![Failures tab: 24 pytest and 4 dbt tests not passing, by layer](docs/images/dashboard_nogo_failures.png)
+
+"Tables loaded clean" stays 16/16 because the faults were injected after the load. To reproduce:
+
+```bash
+uv run --env-file .env python -m faults.inject apply drop_rows        # repeat per fault
+uv run --env-file .env python -m reconcile.signoff --report /tmp/faulted.md   # NO-GO
+uv run --env-file .env python -m faults.inject restore payment        # repeat per table
+uv run --env-file .env python -m reconcile.signoff                    # GO
+```
+
+One fault at a time, each layer's detection is in the [fault matrix](reports/fault_matrix.md).
+
 ## AI-assisted test authoring
 
 Four Claude Code subagents ([.claude/agents/](.claude/agents/)) draft validation work for human review. Each was evaluated blind against known answers before use.
