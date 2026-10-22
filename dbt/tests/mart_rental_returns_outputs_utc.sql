@@ -1,5 +1,4 @@
--- Written by the dbt-test-author agent in a blind run (proposals/dbt-test-author/);
--- promoted after human review.
+-- Written by the dbt-test-author agent in a blind run; promoted after human review.
 {{ config(meta={'requirement': 'ETL-004'}) }}
 -- Timestamp outputs are normalised to UTC (zero offset), not left at the input's offset.
 select rental_id, rental_date, due_at, return_date

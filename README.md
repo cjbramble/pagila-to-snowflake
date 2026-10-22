@@ -75,7 +75,7 @@ Four Claude Code subagents ([.claude/agents/](.claude/agents/)) draft validation
 | `rule-reviewer` | Ambiguities and edge cases in a draft business rule | Recovered 12.5 of 13 known gaps, with no false findings |
 | `dq-triage` | Diagnosis of a failing check: affected rows, root cause, fix | Scored 31 of 32 on four blind fault scenarios |
 
-Agents use read-only database identities and write where the project keeps that kind of file (`dbt/`, `sql/checks/`, `docs/rule_reviews/`); a human reviews the diff before it's merged. `proposals/` archives their evaluation output. Defects found in AI-generated work are recorded in [AI_LOG.md](AI_LOG.md).
+Agents use read-only database identities and write where the project keeps that kind of file (`dbt/`, `sql/checks/`, `docs/rule_reviews/`); a human reviews the diff before it's merged. Defects found in AI-generated work are recorded in [AI_LOG.md](AI_LOG.md).
 
 ## Quick start
 

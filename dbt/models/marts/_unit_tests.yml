@@ -99,9 +99,9 @@ unit_tests:
         - {customer_id: 1, lifetime_revenue: 6.00, payment_count: 3, rental_count: 2, first_payment_at: "2026-01-05 00:00:00.000000 +0000", last_payment_at: "2026-03-01 00:00:00.000000 +0000"}
         - {customer_id: 2, lifetime_revenue: 0.00, payment_count: 0, rental_count: 1, first_payment_at: null, last_payment_at: null}
 
-  # Written by the dbt-test-author agent in a blind run (proposals/dbt-test-author/),
-  # promoted after human review. rental_returns_boundaries is the test that found
-  # defect 30 (days_late lost up to ~43 ms past a day boundary).
+  # Written by the dbt-test-author agent in a blind run, promoted after human review.
+  # rental_returns_boundaries is the test that found defect 30 (days_late lost up to
+  # ~43 ms past a day boundary).
   - name: rental_returns_boundaries
     model: mart_rental_returns
     config:

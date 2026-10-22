@@ -29,7 +29,7 @@ uv run --env-file .env python -m triage.query sf "SELECT ..."   # target: Snowfl
 - `docs/dq_checklist.md`: traps learned in this project. **Follow it**, especially when you compare values across the two systems.
 - `README.md`.
 
-Do **not** read `src/faults/`, any `reports/*matrix*.md`, `proposals/`, or `AI_LOG.md`. They describe injected test faults and agent evaluations, and your diagnosis must come from the data.
+Do **not** read `src/faults/`, any `reports/*matrix*.md`, or `AI_LOG.md`. They describe injected test faults and agent evaluations, and your diagnosis must come from the data.
 
 ## Method
 

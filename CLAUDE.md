@@ -40,7 +40,6 @@ Harnesses (slow, write to Snowflake):
 
 - Subagents in `.claude/agents/` (`dq-triage`, `dbt-test-author`, `migration-check-author`, `rule-reviewer`) query only through `triage.query`, `triage.check_pair`, and `triage.dbt_check`, as read-only identities (Postgres `dq_triage`, Snowflake `PAGILA_TRIAGE_SVC`).
 - Authoring agents write where the project keeps that kind of file: `dbt-test-author` to `dbt/models/marts/_marts.yml`, `_unit_tests.yml`, and `dbt/tests/`; `migration-check-author` to `sql/checks/`; `rule-reviewer` to `docs/rule_reviews/`. The human reviews the diff before it's merged.
-- `proposals/` is an archive of the agents' blind-evaluation output, which the `*_agent.md` reports and `AI_LOG.md` cite. Nothing writes to it.
 - `docs/dq_checklist.md` holds the Postgres ↔ Snowflake traps found in this project (DATEDIFF boundaries, `COLLATE "C"`, backslash literals, LA default time zone, CHECK blocking `COPY INTO`, unenforced PKs/FKs). Follow it when writing any cross-system SQL or test.
 
 ## Project conventions

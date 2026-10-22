@@ -17,7 +17,7 @@ You work in the repository root (or a worktree of it). Read:
 - `mapping/type_mapping.yml`: column types (for example `TIMESTAMP_TZ(6)`, `NUMBER(5,2)`).
 - `docs/dq_checklist.md`: traps learned in this project. **Follow it.**
 
-Don't read `src/faults/`, `reports/*matrix*.md`, `proposals/`, or `AI_LOG.md`: your tests are scored against the model mutations described there.
+Don't read `src/faults/`, `reports/*matrix*.md`, or `AI_LOG.md`: your tests are scored against the model mutations described there.
 
 ## Output
 

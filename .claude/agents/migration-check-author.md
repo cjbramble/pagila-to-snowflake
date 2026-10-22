@@ -17,7 +17,7 @@ You'll be told the tables and requirement IDs. You work in the repository root (
 - `docs/dq_checklist.md`: traps learned in this project. **Follow it.**
 - `sql/checks/`: the existing checks. Extend them; don't duplicate what they already cover.
 
-Don't read `src/faults/`, `reports/*matrix*.md`, `proposals/`, or `AI_LOG.md`: your checks are scored against the faults described there.
+Don't read `src/faults/`, `reports/*matrix*.md`, or `AI_LOG.md`: your checks are scored against the faults described there.
 
 ## What a check is
 
