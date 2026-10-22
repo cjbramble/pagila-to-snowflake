@@ -33,7 +33,7 @@ flowchart LR
 
     sut -- "queried read-only" --> suite
     REQ -- "traced to" --> suite
-    REQ --> AUTHOR -- "human-reviewed<br>proposals" --> suite
+    REQ --> AUTHOR -- "human-reviewed<br>changes" --> suite
     FAULTS -. "inject known defects<br>to prove they're caught" .-> sut
     suite --> GATE --> REPORT
 ```
@@ -49,6 +49,7 @@ Each layer traces to requirements in [requirements/requirements.yml](requirement
 | Volume | Row counts; load log | Dropped or duplicated rows, failed loads |
 | Aggregate | Per column: nulls, distinct, min, max, sum, text length | Truncation, shifted values, type changes |
 | Row | Normalized hash per primary key, source vs target | Any changed, missing, or extra row, by key |
+| Paired checks | Hand-reviewed Postgres/Snowflake SQL pairs in `sql/checks/` whose results must match | Volume, aggregate, and row defects, per check |
 | Integrity | Orphans across 23 relationships; domain rules | Broken references (Snowflake doesn't enforce FKs) |
 | Contract | Soda contracts on key RAW tables and the marts | Schema, uniqueness, required and valid values |
 | Business rule | dbt unit and data tests; marts vs an independent Postgres implementation | Rule logic, boundary cases, join fan-out |
@@ -74,7 +75,7 @@ Four Claude Code subagents ([.claude/agents/](.claude/agents/)) draft validation
 | `rule-reviewer` | Ambiguities and edge cases in a draft business rule | Recovered 12.5 of 13 known gaps, with no false findings |
 | `dq-triage` | Diagnosis of a failing check: affected rows, root cause, fix | Scored 31 of 32 on four blind fault scenarios |
 
-Agents use read-only database identities and write only to `proposals/`, and a reviewer promotes accepted output into the suite. Defects found in AI-generated work are recorded in [AI_LOG.md](AI_LOG.md).
+Agents use read-only database identities and write where the project keeps that kind of file (`dbt/`, `sql/checks/`, `docs/rule_reviews/`); a human reviews the diff before it's merged. `proposals/` archives their evaluation output. Defects found in AI-generated work are recorded in [AI_LOG.md](AI_LOG.md).
 
 ## Quick start
 

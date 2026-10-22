@@ -7,6 +7,7 @@
 - row counts and per-column aggregates
 - a normalized row hash per primary key
 - orphan and domain-rule checks in the target
+- paired checks in `sql/checks/`: a `<name>.pg.sql` and `<name>.sf.sql` that must return identical rows (line 1 is `-- requirement: MIG-00X`; `tests/reconciliation/test_07_pairs.py` runs them)
 
 Failures name the table, column, or key that differs. This is the layer that signs off the migration.
 
