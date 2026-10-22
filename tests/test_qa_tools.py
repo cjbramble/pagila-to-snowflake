@@ -3,9 +3,12 @@
 import datetime as dt
 from pathlib import Path
 
-from faults import dbt_mutations, pair_matrix
+import pytest
+
+from faults import dbt_mutations, inject, pair_matrix
+from faults.catalog import Fault
 from reconcile import signoff
-from triage import dbt_check
+from triage import check_pair, dbt_check, query
 
 
 def make(root: Path, *files: str) -> Path:
@@ -150,4 +153,82 @@ def test_signoff_g5_fails_on_untraced_test_failures():
     accepted = {s: {"status": "accepted", "decided_by": "Data owner"} for s in signoff.KNOWN_ISSUES}
     untraced = ["tests.test_loader::test_x"]
     gates = signoff.gate({"MIG-001": "PASS"}, traces, accepted, [], untraced)
+    assert [g for g, _, ok, _ in gates if not ok] == ["G5"]
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "EXPLAIN ANALYZE DELETE FROM payment",
+        "WITH d AS (DELETE FROM payment RETURNING *) SELECT * FROM d",
+        "WITH u AS (UPDATE film SET title = 'x' RETURNING *) SELECT 1",
+        "INSERT INTO payment SELECT * FROM payment",
+        "SELECT 1; DROP TABLE payment",
+    ],
+)
+def test_triage_query_rejects_writes(sql):
+    with pytest.raises(SystemExit):
+        query.check_statement(sql)
+
+
+def test_triage_query_allows_reads():
+    sql = "WITH x AS (SELECT last_update, create_date FROM customer) SELECT * FROM x;"
+    assert query.check_statement(sql) == sql.rstrip(";")
+
+
+def test_check_pair_keeps_double_dash_inside_literals():
+    sql = "-- requirement: MIG-004\nSELECT '--' AS a, 'it''s -- x' AS b -- trailing\nFROM t"
+    assert (
+        check_pair.statement_of(sql, "postgres") == "SELECT '--' AS a, 'it''s -- x' AS b \nFROM t"
+    )
+    sf_sql = "SELECT 'it\\'s -- x' AS b -- trailing\nFROM t"
+    assert check_pair.statement_of(sf_sql, "snowflake") == "SELECT 'it\\'s -- x' AS b \nFROM t"
+
+
+def test_dbt_mutations_uses_trusted_profile_and_schema_macro(tmp_path):
+    dbt_dir = make(tmp_path / "agent", "dbt_project.yml", "models/marts/m.sql")
+    (dbt_dir / "profiles.yml").write_text("evil")
+    (dbt_dir / "macros").mkdir()
+    (dbt_dir / "macros" / "generate_schema_name.sql").write_text("evil")
+    project = dbt_mutations.copy_project(dbt_dir, tmp_path / "copy")
+    trusted = dbt_mutations.ROOT / "dbt"
+    for rel in dbt_mutations.TRUSTED_FILES:
+        assert (project / rel).read_text() == (trusted / rel).read_text()
+
+
+class FailingCursor:
+    def __init__(self, log: list[str]):
+        self.log = log
+
+    def execute(self, statement: str):
+        self.log.append(statement)
+        if statement.startswith("BREAK"):
+            raise RuntimeError("fault statement failed")
+        return self
+
+
+class FakeConnection:
+    def __init__(self):
+        self.log: list[str] = []
+
+    def cursor(self):
+        return FailingCursor(self.log)
+
+
+def test_fault_apply_restores_when_a_statement_fails(monkeypatch):
+    restored = []
+    monkeypatch.setattr(inject, "backup_exists", lambda sf, table: False)
+    monkeypatch.setattr(inject, "restore", lambda sf, table: restored.append(table))
+    fault = Fault("broken", "payment", "fails halfway", ("UPDATE {t} SET x = 1", "BREAK {t}"))
+    with pytest.raises(RuntimeError):
+        inject.apply(FakeConnection(), fault)
+    assert restored == ["payment"]
+
+
+def test_signoff_g5_fails_on_unknown_dbt_requirement():
+    traces = {"MIG-001": signoff.Trace()}
+    traces["MIG-001"].pytest["t"].append("passed")
+    accepted = {s: {"status": "accepted", "decided_by": "Data owner"} for s in signoff.KNOWN_ISSUES}
+    unknown = ["dbt assert_x (unknown ETL-099)"]
+    gates = signoff.gate({"MIG-001": "PASS"}, traces, accepted, [], unknown)
     assert [g for g, _, ok, _ in gates if not ok] == ["G5"]
