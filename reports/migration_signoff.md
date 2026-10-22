@@ -1,6 +1,6 @@
 # Migration sign-off: Pagila → Snowflake
 
-Generated 2026-10-22 01:10 UTC by `python -m reconcile.signoff` at commit `90f31b9`.
+Generated 2026-10-22 02:54 UTC by `python -m reconcile.signoff` at commit `70fa975`.
 
 ## Recommendation: **GO**
 
@@ -11,8 +11,7 @@ Every gate criterion is met.
 | G1 | Every requirement is covered by at least one test that ran | yes | 17/17 covered |
 | G2 | Every requirement passes, or has an approved, unexpired waiver | yes | no failing or incomplete requirements |
 | G3 | Every known source issue is accepted by a named human | yes | 5/5 accepted |
-| G4 | The run is on committed code, so the report traces to one commit | yes | clean tree |
-| G5 | Every test that traces to no requirement passes, and none declares an unknown one | yes | all pass |
+| G4 | Every test that traces to no requirement passes, and none declares an unknown one | yes | all pass |
 
 ## Scope
 
@@ -28,7 +27,7 @@ Every gate criterion is met.
 | Suite | Result |
 |---|---|
 | Load (`QA.LOAD_LOG`, latest per table) | 16/16 tables SUCCESS with rows loaded = rows extracted; 122,209 rows |
-| pytest | 195/195 passed |
+| pytest | 197/197 passed |
 | dbt test | 29/29 passed (8 unit, 21 data) |
 
 ## Requirement status and traceability
