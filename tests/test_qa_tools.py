@@ -7,7 +7,7 @@ import pytest
 
 from faults import dbt_mutations, inject, pair_matrix
 from faults.catalog import Fault
-from reconcile import signoff
+from reconcile import signoff, store
 from triage import check_pair, dbt_check, query
 
 
@@ -74,58 +74,31 @@ def test_signoff_requirement_status():
     assert status([]) == "INCOMPLETE"
 
 
-def test_signoff_waiver_needs_approver_and_must_not_be_expired():
-    today = dt.date(2026, 10, 21)
-    ok = {"requirement": "MIG-004", "approved_by": "Data owner", "expires": "2026-10-21"}
-    assert signoff.active_waiver([ok], "MIG-004", today) == ok
-    assert signoff.active_waiver([ok], "MIG-003", today) is None
-    assert signoff.active_waiver([ok | {"approved_by": None}], "MIG-004", today) is None
-    assert signoff.active_waiver([ok | {"expires": "2026-10-20"}], "MIG-004", today) is None
-
-
 def test_signoff_gate_is_no_go_on_any_unmet_criterion():
     traces = {"MIG-001": signoff.Trace(), "MIG-002": signoff.Trace()}
     traces["MIG-001"].pytest["t"].append("passed")
-    accepted = {s: {"status": "accepted", "decided_by": "Data owner"} for s in signoff.KNOWN_ISSUES}
-    gates = signoff.gate({"MIG-001": "PASS", "MIG-002": "FAIL"}, traces, accepted, [], [])
-    met = {g: ok for g, _, ok, _ in gates}
-    assert met == {"G1": False, "G2": False, "G3": True, "G4": True, "G5": True}
+    gates = signoff.gate({"MIG-001": "PASS", "MIG-002": "FAIL"}, traces, [])
+    assert {g: ok for g, _, ok, _ in gates} == {"G1": False, "G2": False, "G3": True}
 
     traces["MIG-002"].pytest["t"].append("passed")
-    pending = accepted | {"SRC-001": {"status": "pending"}}
-    gates = signoff.gate({"MIG-001": "PASS", "MIG-002": "PASS"}, traces, pending, ["x.py"], [])
-    assert {g: ok for g, _, ok, _ in gates} == {
-        "G1": True,
-        "G2": True,
-        "G3": False,
-        "G4": False,
-        "G5": True,
-    }
-
-    gates = signoff.gate({"MIG-001": "PASS", "MIG-002": "PASS"}, traces, accepted, [], [])
+    gates = signoff.gate({"MIG-001": "PASS", "MIG-002": "PASS"}, traces, [])
     assert all(ok for _, _, ok, _ in gates)
-
-    unnamed = accepted | {"SRC-002": {"status": "accepted", "decided_by": None}}
-    gates = signoff.gate({"MIG-001": "PASS", "MIG-002": "PASS"}, traces, unnamed, [], [])
-    assert [g for g, _, ok, _ in gates if not ok] == ["G3"]
 
 
 def test_signoff_g1_needs_a_test_that_actually_ran():
     traces = {"MIG-001": signoff.Trace()}
     traces["MIG-001"].pytest["t"].append("skipped")
-    accepted = {s: {"status": "accepted", "decided_by": "Data owner"} for s in signoff.KNOWN_ISSUES}
-    # Even with the requirement waived to PASS, a skipped-only trace is uncovered.
-    gates = signoff.gate({"MIG-001": "PASS"}, traces, accepted, [], [])
+    # Even if the requirement's status were PASS, a skipped-only trace is uncovered.
+    gates = signoff.gate({"MIG-001": "PASS"}, traces, [])
     assert [g for g, _, ok, _ in gates if not ok] == ["G1"]
 
 
-def test_signoff_g5_fails_on_untraced_test_failures():
+def test_signoff_g3_fails_on_untraced_test_failures():
     traces = {"MIG-001": signoff.Trace()}
     traces["MIG-001"].pytest["t"].append("passed")
-    accepted = {s: {"status": "accepted", "decided_by": "Data owner"} for s in signoff.KNOWN_ISSUES}
     untraced = ["tests.test_loader::test_x"]
-    gates = signoff.gate({"MIG-001": "PASS"}, traces, accepted, [], untraced)
-    assert [g for g, _, ok, _ in gates if not ok] == ["G5"]
+    gates = signoff.gate({"MIG-001": "PASS"}, traces, untraced)
+    assert [g for g, _, ok, _ in gates if not ok] == ["G3"]
 
 
 @pytest.mark.parametrize(
@@ -197,10 +170,69 @@ def test_fault_apply_restores_when_a_statement_fails(monkeypatch):
     assert restored == ["payment"]
 
 
-def test_signoff_g5_fails_on_unknown_dbt_requirement():
+def test_signoff_g3_fails_on_unknown_dbt_requirement():
     traces = {"MIG-001": signoff.Trace()}
     traces["MIG-001"].pytest["t"].append("passed")
-    accepted = {s: {"status": "accepted", "decided_by": "Data owner"} for s in signoff.KNOWN_ISSUES}
     unknown = ["dbt assert_x (unknown ETL-099)"]
-    gates = signoff.gate({"MIG-001": "PASS"}, traces, accepted, [], unknown)
-    assert [g for g, _, ok, _ in gates if not ok] == ["G5"]
+    gates = signoff.gate({"MIG-001": "PASS"}, traces, unknown)
+    assert [g for g, _, ok, _ in gates if not ok] == ["G3"]
+
+
+class FakeCursor:
+    def __init__(self):
+        self.statements, self.rows = [], []
+
+    def execute(self, sql):
+        self.statements.append(sql)
+
+    def executemany(self, sql, rows):
+        self.statements.append(sql)
+        self.rows += rows
+
+
+def test_store_dbt_writes_one_row_per_requirement():
+    tests = [
+        {
+            "name": "t1",
+            "kind": "unit",
+            "requirements": ["ETL-001", "ETL-002"],
+            "status": "passed",
+            "message": "",
+        },
+        {"name": "t2", "kind": "data", "requirements": [], "status": "fail", "message": "x" * 5000},
+    ]
+    cur = FakeCursor()
+    store.store_dbt(cur, "run", dt.datetime(2026, 10, 21, tzinfo=dt.UTC), tests)
+    assert cur.statements[0].startswith("CREATE TABLE IF NOT EXISTS PAGILA_MIG.QA.DBT_TEST_RESULTS")
+    assert [(r[2], r[4]) for r in cur.rows] == [("t1", "ETL-001"), ("t1", "ETL-002"), ("t2", None)]
+    assert len(cur.rows[2][6]) == store.MAX_MESSAGE
+    assert all(len(r) == store.TABLES["DBT_TEST_RESULTS"].count(",") + 1 for r in cur.rows)
+
+
+def test_signoff_writes_the_run_header_last(monkeypatch):
+    cur = FakeCursor()
+
+    class Conn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def cursor(self):
+            return cur
+
+    monkeypatch.setattr(signoff, "connect", Conn)
+    req_id = next(iter(signoff.REQUIREMENTS))
+    signoff.record_run(
+        started=dt.datetime(2026, 10, 21, tzinfo=dt.UTC),
+        sha="abc1234",
+        go=True,
+        gates=[("G1", "c", True, "d")],
+        statuses={req_id: "PASS"},
+        pytest_results=[],
+        dbt_results=[],
+    )
+    inserts = [s for s in cur.statements if s.startswith("INSERT")]
+    assert "SIGNOFF_RUNS" in inserts[-1]
+    assert cur.rows[-1][2:] == ("abc1234", "GO")

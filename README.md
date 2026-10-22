@@ -64,6 +64,8 @@ Source-to-target checks are pytest (`tests/reconciliation/`), contracts are Soda
 | [Fault injection](reports/fault_matrix.md) | 12 of 12 injected migration faults detected |
 | [dbt mutation testing](reports/dbt_mutation_matrix.md) | 17 of 17 model mutations detected |
 
+Each sign-off run is also stored in Snowflake's `QA` schema, where a Streamlit in Snowflake dashboard ([dashboard/](dashboard/)) shows the verdict, gate, requirement status by layer, failures, loads, and run history.
+
 ## AI-assisted test authoring
 
 Four Claude Code subagents ([.claude/agents/](.claude/agents/)) draft validation work for human review. Each was evaluated blind against known answers before use.
@@ -87,6 +89,7 @@ uv run --env-file .env python -m migrate.load                     # migrate to S
 (cd dbt && uv run --env-file ../.env dbt build --profiles-dir .)  # build and test the marts
 uv run --env-file .env pytest                                     # full validation suite
 uv run --env-file .env python -m reconcile.signoff                # sign-off report; exits 1 on NO-GO
+uv run --env-file .env python -m reconcile.dashboard              # deploy the validation dashboard
 ```
 
 ## CI

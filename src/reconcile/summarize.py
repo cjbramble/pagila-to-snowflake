@@ -13,7 +13,9 @@ import sys
 
 from migrate.mapping import load_spec
 from migrate.snowflake_conn import connect
-from reconcile.record import RECON_RESULTS
+from reconcile.store import QA
+
+RECON_RESULTS = f"{QA}.RECON_RESULTS"
 
 FAILURES_SQL = f"""SELECT REQUIREMENT, TEST_ID, MESSAGE FROM {RECON_RESULTS}
 WHERE RUN_ID = %s AND OUTCOME IN ('failed', 'error') ORDER BY REQUIREMENT, TEST_ID"""
