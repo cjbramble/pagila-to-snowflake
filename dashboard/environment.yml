@@ -1,0 +1,8 @@
+# Packages for the Streamlit in Snowflake runtime, from the Snowflake Anaconda channel.
+name: pagila_validation_dashboard
+channels:
+  - snowflake
+dependencies:
+  - streamlit=1.52.2
+  - pandas=2.3.3   # streamlit 1.52 needs pandas < 3
+  - snowflake-snowpark-python=1.55.2

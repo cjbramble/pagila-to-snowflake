@@ -51,7 +51,8 @@ uv run --env-file .env python -m reconcile.record           # store a suite run 
 uv run --env-file .env python -m reconcile.summarize        # Cortex summary of its failures, fact-checked
 uv run --env-file .env python -m faults.dbt_mutations       # break dbt models 17 ways, score the dbt tests
 uv run --env-file .env python -m faults.pair_matrix sql/checks   # score the paired SQL checks against the faults
-uv run --env-file .env python -m reconcile.signoff          # run everything, write reports/migration_signoff.md (exit 1 on NO-GO)
+uv run --env-file .env python -m reconcile.signoff          # run everything, write reports/migration_signoff.md and the QA tables (exit 1 on NO-GO)
+uv run --env-file .env python -m reconcile.dashboard        # deploy the validation dashboard to Streamlit in Snowflake, print its URL
 ```
 
 ## CI
