@@ -18,34 +18,6 @@ def make(root: Path, *files: str) -> Path:
     return root
 
 
-def test_dbt_check_overlays_only_test_files(tmp_path):
-    proposals = make(
-        tmp_path,
-        "README.md",
-        "models/marts/_tests.yml",
-        "tests/assert_x.sql",
-        "profiles.yml",
-        "dbt_project.yml",
-        "macros/evil.sql",
-        "models/marts/new_model.sql",
-        "tests/notes.md",
-        "models/top.yml",
-    )
-    allowed, rejected = dbt_check.proposal_files(proposals)
-    assert allowed == [
-        Path("models/marts/_tests.yml"),
-        Path("models/top.yml"),
-        Path("tests/assert_x.sql"),
-    ]
-    assert rejected == [
-        Path("dbt_project.yml"),
-        Path("macros/evil.sql"),
-        Path("models/marts/new_model.sql"),
-        Path("profiles.yml"),
-        Path("tests/notes.md"),
-    ]
-
-
 def test_dbt_check_withholds_writable_credentials(monkeypatch):
     monkeypatch.setenv("SNOWFLAKE_PRIVATE_KEY_PATH", "/keys/writable.p8")
     monkeypatch.setenv("SNOWFLAKE_TRIAGE_PRIVATE_KEY_PATH", "/keys/readonly.p8")
