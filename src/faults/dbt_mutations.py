@@ -22,6 +22,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 MODELS = Path("models") / "marts"
+# The mutation target builds with a writable identity, so the files that keep it out of
+# the real schemas always come from this repository, never from the project being copied.
+TRUSTED_FILES = [Path("profiles.yml"), Path("macros") / "generate_schema_name.sql"]
 
 
 @dataclass(frozen=True)
@@ -186,6 +189,9 @@ def copy_project(dbt_dir: Path, dest: Path) -> Path:
         project,
         ignore=shutil.ignore_patterns("target", "logs", "dbt_packages", ".user.yml"),
     )
+    for rel in TRUSTED_FILES:
+        (project / rel).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / "dbt" / rel, project / rel)
     return project
 
 
