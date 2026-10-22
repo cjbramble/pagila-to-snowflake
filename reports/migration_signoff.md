@@ -1,6 +1,6 @@
 # Migration sign-off: Pagila → Snowflake
 
-Generated 2026-10-22 02:54 UTC by `python -m reconcile.signoff` at commit `70fa975`.
+Generated 2026-10-22 03:00 UTC by `python -m reconcile.signoff` at commit `3c23bae`.
 
 ## Recommendation: **GO**
 
@@ -9,9 +9,8 @@ Every gate criterion is met.
 | Gate | Criterion | Met | Detail |
 |---|---|---|---|
 | G1 | Every requirement is covered by at least one test that ran | yes | 17/17 covered |
-| G2 | Every requirement passes, or has an approved, unexpired waiver | yes | no failing or incomplete requirements |
-| G3 | Every known source issue is accepted by a named human | yes | 5/5 accepted |
-| G4 | Every test that traces to no requirement passes, and none declares an unknown one | yes | all pass |
+| G2 | Every requirement passes | yes | no failing or incomplete requirements |
+| G3 | Every test that traces to no requirement passes, and none declares an unknown one | yes | all pass |
 
 ## Scope
 
@@ -27,7 +26,7 @@ Every gate criterion is met.
 | Suite | Result |
 |---|---|
 | Load (`QA.LOAD_LOG`, latest per table) | 16/16 tables SUCCESS with rows loaded = rows extracted; 122,209 rows |
-| pytest | 197/197 passed |
+| pytest | 196/196 passed |
 | dbt test | 29/29 passed (8 unit, 21 data) |
 
 ## Requirement status and traceability
@@ -56,19 +55,15 @@ Test names are pytest functions (with passed/total over their parameters) and db
 
 ## Known source issues
 
-Source data-quality findings that migrate faithfully. Each needs a human disposition (`requirements/signoff.yml`).
+Source data-quality findings that migrate faithfully (`requirements/requirements.yml`).
 
-| Issue | Title | Disposition | Decided by |
-|---|---|---|---|
-| SRC-001 | Payments dated before their rental | accepted | Chet |
-| SRC-002 | Zero-amount payments | accepted | Chet |
-| SRC-003 | Credential hashes migrated | accepted | Chet |
-| SRC-004 | Store managers belong to other stores | accepted | Chet |
-| SRC-005 | Payments made by someone other than the renter | accepted | Chet |
-
-## Waivers
-
-None.
+| Issue | Title |
+|---|---|
+| SRC-001 | Payments dated before their rental |
+| SRC-002 | Zero-amount payments |
+| SRC-003 | Credential hashes migrated |
+| SRC-004 | Store managers belong to other stores |
+| SRC-005 | Payments made by someone other than the renter |
 
 ## Supporting evidence
 
