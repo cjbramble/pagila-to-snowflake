@@ -63,9 +63,21 @@ def compare(source: list[tuple], target: list[tuple]) -> str:
     return "\n".join(lines)
 
 
-def statement_of(sql: str) -> str:
-    """The SQL without line comments, checked to be a single read-only statement."""
-    return check_statement(re.sub(r"--[^\n]*", "", sql))
+# A string literal, or a line comment. Snowflake treats backslash as an escape inside
+# literals; Postgres (standard_conforming_strings) doesn't, so 'C:\' is a whole literal there.
+LITERAL_OR_COMMENT = {
+    "postgres": re.compile(r"('(?:[^']|'')*')|--[^\n]*"),
+    "snowflake": re.compile(r"('(?:[^'\\]|\\.|'')*')|--[^\n]*"),
+}
+
+
+def statement_of(sql: str, dialect: str) -> str:
+    """The SQL without line comments, checked to be a single read-only statement.
+
+    `--` inside a string literal is kept, so only real comments are removed.
+    """
+    stripped = LITERAL_OR_COMMENT[dialect].sub(lambda m: m[1] or "", sql)
+    return check_statement(stripped)
 
 
 def run_pair(directory: Path, name: str) -> PairResult:
@@ -73,8 +85,8 @@ def run_pair(directory: Path, name: str) -> PairResult:
     sf_sql = (directory / f"{name}.sf.sql").read_text()
     requirement = requirement_of(pg_sql)
     try:
-        _, source = query_postgres(statement_of(pg_sql), limit=None)
-        _, target = query_snowflake(statement_of(sf_sql), limit=None)
+        _, source = query_postgres(statement_of(pg_sql, "postgres"), limit=None)
+        _, target = query_snowflake(statement_of(sf_sql, "snowflake"), limit=None)
     except (
         SystemExit,
         psycopg.Error,

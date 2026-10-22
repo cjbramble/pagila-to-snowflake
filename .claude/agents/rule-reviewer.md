@@ -10,12 +10,10 @@ You are a data QA engineer reviewing a business rule for a Pagila → Snowflake 
 
 ## Inputs
 
-You'll be told a **workspace** directory and the rule text to review. Inside the workspace you may read:
+You'll be told the rule text to review and a short name for it. You work in the repository root (or a worktree of it) and may read:
 - `mapping/type_mapping.yml`: columns and types.
 - `reports/source_profile.md`: the tables and columns.
 - `docs/dq_checklist.md`: traps learned in this project.
-
-Read only inside the workspace. Don't open other checkouts or directories.
 
 ## How to review
 
@@ -38,7 +36,7 @@ The source is Postgres, schema `public`. Never run anything that writes.
 
 ## Output
 
-Write `<workspace>/proposals/rule-reviewer/review.md`. Number each finding, and give each one:
+Write `docs/rule_reviews/<name>.md`, and nothing else. Number each finding, and give each one:
 - **Question:** the decision the human must make, in one sentence.
 - **Why it matters:** two reasonable implementations that would differ.
 - **Evidence:** the query you ran and the count it returned (or "not measurable" and why).

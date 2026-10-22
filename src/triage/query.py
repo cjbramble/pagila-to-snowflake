@@ -16,6 +16,14 @@ import psycopg
 import snowflake.connector
 
 READ_ONLY = re.compile(r"^\s*(select|with|show|desc|describe|explain)\b", re.IGNORECASE)
+# A read-only first keyword isn't enough: Postgres runs EXPLAIN ANALYZE <statement> and
+# data-modifying CTEs (WITH d AS (DELETE ...) SELECT ...). Rejecting these words anywhere
+# also rejects some harmless reads, which is the safe direction.
+WRITE_KEYWORD = re.compile(
+    r"\b(insert|update|delete|merge|upsert|truncate|drop|create|alter|grant|revoke|copy|"
+    r"call|execute|analyze|analyse|refresh|vacuum|lock|set|reset|put|remove|undrop)\b",
+    re.IGNORECASE,
+)
 MAX_ROWS = 200
 TRIAGE_ROLE = "PAGILA_TRIAGE"
 
@@ -27,6 +35,8 @@ def check_statement(sql: str) -> str:
         raise SystemExit("one statement per call")
     if not READ_ONLY.match(statement):
         raise SystemExit("read-only tool: SELECT, WITH, SHOW, DESC, or EXPLAIN only")
+    if match := WRITE_KEYWORD.search(statement):
+        raise SystemExit(f"read-only tool: '{match[1]}' is not allowed anywhere in the statement")
     return statement
 
 

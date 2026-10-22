@@ -25,6 +25,17 @@ FROM {RECON_RESULTS} WHERE RUN_ID = %s AND OUTCOME IN ('failed', 'error')"""
 
 REQUIREMENT_ID = re.compile(r"\b(?:MIG|ETL)-\d{3}\b")
 NUMBER = re.compile(r"(?<![\w.-])-?\d+(?:\.\d+)?(?![\w-])")
+THOUSANDS_SEPARATOR = re.compile(r"(?<=\d),(?=\d{3}(?!\d))")
+
+
+def numbers(text: str) -> set[str]:
+    """Whole numbers in text, with thousands separators removed ("16,049" -> "16049")."""
+    return set(NUMBER.findall(THOUSANDS_SEPARATOR.sub("", text)))
+
+
+def names_table(text: str, table: str) -> bool:
+    # Whole word only: "customer" must not match inside "customer_id".
+    return re.search(rf"\b{table}\b", text, re.IGNORECASE) is not None
 
 
 def fact_check(summary: str, failures: list[tuple], tables: set[str]) -> dict[str, list[str]]:
@@ -32,14 +43,14 @@ def fact_check(summary: str, failures: list[tuple], tables: set[str]) -> dict[st
     failed_reqs = {f[0] for f in failures if f[0]}
     failed_text = " ".join(f"{f[1]} {f[2]}" for f in failures).lower()
     named_reqs = set(REQUIREMENT_ID.findall(summary))
-    named_tables = {t for t in tables if re.search(rf"\b{t}\b", summary, re.IGNORECASE)}
+    named_tables = {t for t in tables if names_table(summary, t)}
     # Numbers must match a whole number in the failures; "3" doesn't match inside "51061".
-    stated_numbers = set(NUMBER.findall(REQUIREMENT_ID.sub("", summary)))
-    failure_numbers = {n.lstrip("-") for n in NUMBER.findall(failed_text)}
+    stated_numbers = numbers(REQUIREMENT_ID.sub("", summary))
+    failure_numbers = {n.lstrip("-") for n in numbers(failed_text)}
     return {
         "invented_requirements": sorted(named_reqs - failed_reqs),
         "omitted_requirements": sorted(failed_reqs - named_reqs),
-        "invented_tables": sorted(t for t in named_tables if t not in failed_text),
+        "invented_tables": sorted(t for t in named_tables if not names_table(failed_text, t)),
         "invented_numbers": sorted(
             n for n in stated_numbers if n.lstrip("-") not in failure_numbers
         ),

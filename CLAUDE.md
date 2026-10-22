@@ -24,22 +24,23 @@ uv run --env-file .env python -m reconcile.signoff           # run everything, w
 Harnesses (slow, write to Snowflake):
 - `uv run --env-file .env python -m faults.matrix [FAULT ...]` injects each fault into RAW, runs `tests/reconciliation`, restores from a zero-copy clone in `PAGILA_MIG.FAULTS`, and writes `reports/fault_matrix.md` (~8 min).
 - `uv run --env-file .env python -m faults.dbt_mutations` mutates dbt models and builds them with the `mutation` target into `MUT_*` schemas.
-- `uv run --env-file .env python -m faults.pair_matrix DIR` scores a folder of paired `.pg.sql`/`.sf.sql` checks against the faults.
+- `uv run --env-file .env python -m faults.pair_matrix sql/checks` scores the paired `.pg.sql`/`.sf.sql` checks (or any folder of them) against the faults.
 
 ## Architecture
 
 - **The mapping spec drives everything.** `mapping/type_mapping.yml` is the column-by-column Postgres → Snowflake spec (types, nullability, virtual columns, CHECKs, exclusions, decision IDs). `migrate.ddl` generates DDL from it, `migrate.load` loads from it, and the schema, aggregate, and row-hash layers compare against it. Changing a column means changing the spec first.
 - **Requirements are the trace key.** `requirements/requirements.yml` defines `MIG-*`, `ETL-*`, and known source issues `SRC-*`. Tests that verify a requirement (reconciliation, ETL, mapping spec) carry `@pytest.mark.req("...")`; collection fails on an unknown ID (`tests/conftest.py`), and pytest prints a per-requirement summary. Unit and harness tests (`test_loader`, `test_rowhash`, `test_summarize`, `test_qa_tools`, `test_etl_traceability`) carry none, and the sign-off gate covers them through G5; don't add a requirement just to mark a test. Every dbt test declares `config.meta.requirement`; `tests/test_etl_traceability.py` fails if an ETL rule has no dbt test. Each requirement's `layer` field is how the fault matrix groups results.
-- **Reconciliation layers** live in `tests/reconciliation/test_0N_*.py` (schema → volume → aggregates → rows → integrity → Soda), backed by `src/reconcile/`. A conftest there marks all of them `source_db` + `target_db`.
+- **Reconciliation layers** live in `tests/reconciliation/test_0N_*.py` (schema → volume → aggregates → rows → integrity → Soda → paired checks), backed by `src/reconcile/`. `test_07_pairs.py` runs every `.pg.sql`/`.sf.sql` pair in `sql/checks/`; line 1 of each pair names its requirement. A conftest there marks all of them `source_db` + `target_db`.
 - **Row hashing** (`src/reconcile/rowhash.py`) generalizes the hand-written pair in `sql/reconciliation/`; a test proves they match. Its normalization rules (length-prefixed values, `0` for NULL, UTC microseconds, 9-decimal vectors) are explained in `docs/reconciliation.md`.
 - **Sign-off gate** (`reconcile.signoff`) runs pytest + `dbt test` once, reads the latest `QA.LOAD_LOG` per table, and applies the human decisions in `requirements/signoff.yml` (dispositions per `SRC-*`, waivers). Any `pending` disposition means NO-GO.
 - **Connections:** Snowflake connects through `~/.snowflake/connections.toml` (`migrate.snowflake_conn.connect`, connection from `$SNOWFLAKE_CONNECTION`, session pinned to UTC). Postgres uses standard `PG*` env vars. Soda and dbt can't read `connections.toml`, so they use `SNOWFLAKE_ACCOUNT` and the key-path env vars.
 - **dbt targets** (`dbt/profiles.yml`): `dev` builds the real schemas; `readonly` is the SELECT-only triage identity; `mutation` builds into `MUT_*` via `macros/generate_schema_name.sql`, so mutations never overwrite real marts.
 
-## AI agents and proposals
+## AI agents
 
 - Subagents in `.claude/agents/` (`dq-triage`, `dbt-test-author`, `migration-check-author`, `rule-reviewer`) query only through `triage.query`, `triage.check_pair`, and `triage.dbt_check`, as read-only identities (Postgres `dq_triage`, Snowflake `PAGILA_TRIAGE_SVC`).
-- Authoring agents write only to `proposals/<agent>/`. A human promotes what's good into the suite.
+- Authoring agents write where the project keeps that kind of file: `dbt-test-author` to `dbt/models/marts/_marts.yml`, `_unit_tests.yml`, and `dbt/tests/`; `migration-check-author` to `sql/checks/`; `rule-reviewer` to `docs/rule_reviews/`. The human reviews the diff before it's merged.
+- `proposals/` is an archive of the agents' blind-evaluation output, which the `*_agent.md` reports and `AI_LOG.md` cite. Nothing writes to it.
 - `docs/dq_checklist.md` holds the Postgres ↔ Snowflake traps found in this project (DATEDIFF boundaries, `COLLATE "C"`, backslash literals, LA default time zone, CHECK blocking `COPY INTO`, unenforced PKs/FKs). Follow it when writing any cross-system SQL or test.
 
 ## Project conventions

@@ -48,7 +48,11 @@ def backup_exists(sf: SnowflakeConnection, table: str) -> bool:
 
 
 def apply(sf: SnowflakeConnection, fault: Fault) -> None:
-    """Back up the table, then run the fault's statements against RAW."""
+    """Back up the table, then run the fault's statements against RAW.
+
+    If a statement fails, the table is restored before the error propagates, so a
+    half-applied fault never stays in RAW.
+    """
     cur = sf.cursor()
     cur.execute(f"CREATE SCHEMA IF NOT EXISTS {BACKUP_SCHEMA}")
     backup = backup_table(fault.table)
@@ -56,8 +60,12 @@ def apply(sf: SnowflakeConnection, fault: Fault) -> None:
         raise SystemExit(f"{backup} exists: restore {fault.table} before applying another fault")
     ref = target_table(load_spec(), fault.table)
     cur.execute(f"CREATE TABLE {backup} CLONE {ref}")
-    for statement in fault.statements:
-        cur.execute(statement.format(t=ref))
+    try:
+        for statement in fault.statements:
+            cur.execute(statement.format(t=ref))
+    except BaseException:
+        restore(sf, fault.table)
+        raise
 
 
 def restore(sf: SnowflakeConnection, table: str) -> None:

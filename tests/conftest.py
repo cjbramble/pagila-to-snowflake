@@ -5,18 +5,13 @@ session-scoped connections to the source (pg) and target (sf).
 """
 
 from collections import defaultdict
-from pathlib import Path
 
 import psycopg
 import pytest
-import yaml
 
 from migrate.mapping import load_spec
 from migrate.snowflake_conn import connect
-
-REQUIREMENTS_PATH = Path(__file__).resolve().parents[1] / "requirements" / "requirements.yml"
-_requirements_file = yaml.safe_load(REQUIREMENTS_PATH.read_text())
-REQUIREMENTS = {**_requirements_file["migration"], **_requirements_file["etl"]}
+from reconcile.results import REQUIREMENTS, requirement_status
 
 # requirement ID -> list of (test node id, outcome)
 _results: dict[str, list[tuple[str, str]]] = defaultdict(list)
@@ -54,14 +49,6 @@ def pytest_runtest_makereport(item, call):
     return report
 
 
-def requirement_status(outcomes: list[str]) -> str:
-    if "failed" in outcomes:
-        return "FAIL"
-    if outcomes and all(o == "passed" for o in outcomes):
-        return "PASS"
-    return "INCOMPLETE"
-
-
 def pytest_terminal_summary(terminalreporter):
     if not _results:
         return
@@ -73,11 +60,10 @@ def pytest_terminal_summary(terminalreporter):
             tr.write_line(f"{req_id}  NOT RUN     {REQUIREMENTS[req_id]['title']}")
             continue
         outcomes = [o for _, o in tests]
-        failed = outcomes.count("failed")
         status = requirement_status(outcomes)
         tr.write_line(
             f"{req_id}  {status:10}  {REQUIREMENTS[req_id]['title']}"
-            f"  ({len(tests) - failed}/{len(tests)} passed)",
+            f"  ({outcomes.count('passed')}/{len(tests)} passed)",
             red=status == "FAIL",
             green=status == "PASS",
             yellow=status == "INCOMPLETE",
