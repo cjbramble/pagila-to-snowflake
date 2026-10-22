@@ -10,8 +10,17 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
-_REQUIREMENTS_FILE = yaml.safe_load((ROOT / "requirements" / "requirements.yml").read_text())
-REQUIREMENTS = {**_REQUIREMENTS_FILE["migration"], **_REQUIREMENTS_FILE["etl"]}
+REQUIREMENTS_FILE = yaml.safe_load((ROOT / "requirements" / "requirements.yml").read_text())
+REQUIREMENTS = {**REQUIREMENTS_FILE["migration"], **REQUIREMENTS_FILE["etl"]}
+
+
+def requirement_status(outcomes: list[str]) -> str:
+    """PASS, FAIL, or INCOMPLETE from pytest ("failed") and dbt ("fail", "error") outcomes."""
+    if any(o in ("failed", "fail", "error") for o in outcomes):
+        return "FAIL"
+    if outcomes and all(o == "passed" for o in outcomes):
+        return "PASS"
+    return "INCOMPLETE"  # nothing ran, or something was skipped
 
 
 @dataclass(frozen=True)

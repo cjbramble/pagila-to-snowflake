@@ -26,10 +26,14 @@ import yaml
 
 from migrate.mapping import load_spec
 from migrate.snowflake_conn import connect
-from reconcile.results import ROOT, run_pytest
+from reconcile.results import (
+    REQUIREMENTS,
+    REQUIREMENTS_FILE,
+    ROOT,
+    requirement_status,
+    run_pytest,
+)
 
-REQUIREMENTS_FILE = yaml.safe_load((ROOT / "requirements" / "requirements.yml").read_text())
-REQUIREMENTS = {**REQUIREMENTS_FILE["migration"], **REQUIREMENTS_FILE["etl"]}
 KNOWN_ISSUES = REQUIREMENTS_FILE["known_source_issues"]
 SIGNOFF_FILE = ROOT / "requirements" / "signoff.yml"
 DEFAULT_REPORT = ROOT / "reports" / "migration_signoff.md"
@@ -105,14 +109,6 @@ def latest_loads() -> list[tuple]:
         return sf.cursor().execute(LATEST_LOADS).fetchall()
 
 
-def requirement_status(outcomes: list[str]) -> str:
-    if any(o in ("failed", "fail", "error") for o in outcomes):
-        return "FAIL"
-    if outcomes and all(o == "passed" for o in outcomes):
-        return "PASS"
-    return "INCOMPLETE"  # nothing ran, or something was skipped
-
-
 def active_waiver(waivers: list[dict], req_id: str, today: dt.date) -> dict | None:
     for w in waivers:
         expires = dt.date.fromisoformat(str(w["expires"]))
@@ -145,7 +141,8 @@ def gate(
 ) -> list[tuple[str, str, bool, str]]:
     """(id, criterion, met, detail) for each gate criterion.
 
-    untraced: tests that trace to no requirement and didn't pass; no waiver can cover them.
+    untraced: tests that trace to no requirement and didn't pass, or that declare an
+    unknown requirement ID; no waiver can cover them.
     """
     uncovered = [r for r, t in traces.items() if all(o == "skipped" for o in t.outcomes())]
     failing = [r for r, s in statuses.items() if s in ("FAIL", "INCOMPLETE")]
@@ -185,9 +182,11 @@ def gate(
         ),
         (
             "G5",
-            "Every test that traces to no requirement passes",
+            "Every test that traces to no requirement passes, and none declares an unknown one",
             not untraced,
-            f"{len(untraced)} not passing: {', '.join(untraced[:5])}" if untraced else "all pass",
+            f"{len(untraced)} not passing or unknown: {', '.join(untraced[:5])}"
+            if untraced
+            else "all pass",
         ),
     ]
 
@@ -358,9 +357,14 @@ def main() -> None:
     for r in pytest_results:
         if r.requirement:
             traces[r.requirement].pytest[r.test_id.split("::")[-1].split("[")[0]].append(r.outcome)
+    # pytest rejects unknown IDs at collection; dbt meta isn't validated until here.
+    unknown_ids = []
     for t in dbt_results:
         for req_id in t["requirements"]:
-            traces[req_id].dbt[t["name"]].append(t["status"])
+            if req_id in traces:
+                traces[req_id].dbt[t["name"]].append(t["status"])
+            else:
+                unknown_ids.append(f"dbt {t['name']} (unknown {req_id})")
 
     today = started.date()
     statuses = {r: requirement_status(t.outcomes()) for r, t in traces.items()}
@@ -374,6 +378,7 @@ def main() -> None:
     untraced += [
         f"dbt {t['name']}" for t in dbt_results if not t["requirements"] and t["status"] != "passed"
     ]
+    untraced += unknown_ids
     gates = gate(effective, traces, dispositions, dirty, untraced)
 
     args.report.parent.mkdir(parents=True, exist_ok=True)

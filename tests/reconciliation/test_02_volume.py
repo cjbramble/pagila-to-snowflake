@@ -45,15 +45,17 @@ def test_table_still_holds_logged_rows(sf, spec, table):
     logged = (
         sf.cursor()
         .execute(
-            f"""SELECT rows_loaded FROM {LOAD_LOG} WHERE table_name = %s
+            f"""SELECT status, rows_loaded FROM {LOAD_LOG} WHERE table_name = %s
             ORDER BY started_at DESC LIMIT 1""",
             (table,),
         )
         .fetchone()
     )
     assert logged, f"{table}: no load log entry"
+    status, rows_loaded = logged
+    assert rows_loaded is not None, f"{table}: latest load is {status} and logged no row count"
     current = sf.cursor().execute(f"SELECT count(*) FROM {target_table(spec, table)}").fetchone()[0]
-    assert current == logged[0], (
-        f"{table}: load logged {logged[0]} rows, table now has {current} "
-        f"({current - logged[0]:+d}); changed after the load"
+    assert current == rows_loaded, (
+        f"{table}: load logged {rows_loaded} rows, table now has {current} "
+        f"({current - rows_loaded:+d}); changed after the load"
     )
